@@ -1,0 +1,268 @@
+.iftp-frm-modal[hidden] {
+	display: none !important;
+}
+
+.iftp-frm-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 100000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 15px;
+	line-height: 1.5;
+}
+
+.iftp-frm-modal__backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgb(16 24 40 / 60%);
+}
+
+.iftp-frm-modal__box {
+	position: relative;
+	z-index: 1;
+	box-sizing: border-box;
+	max-width: 420px;
+	width: calc(100% - 40px);
+	margin: 20px;
+	padding: 32px 28px 24px;
+	border-radius: var(--iftp-radius, 8px);
+	background: var(--iftp-success-bg, #dff0d8);
+	border: 1px solid var(--iftp-success-border, #d6e9c6);
+	color: var(--iftp-success-text, #468847);
+	text-align: center;
+	box-shadow: 0 10px 40px rgb(16 24 40 / 20%);
+	animation: iftp-frm-pop 0.18s ease-out;
+}
+
+.iftp-frm-modal--error .iftp-frm-modal__box {
+	background: var(--iftp-error-bg, #fee4e2);
+	border-color: var(--iftp-error-border, #f5b8aa);
+	color: var(--iftp-error-text, #f04438);
+}
+
+.iftp-frm-modal__icon {
+	margin: 0 auto 12px;
+	width: 32px;
+	height: 32px;
+}
+
+.iftp-frm-modal__message {
+	font-size: 15px;
+}
+
+.iftp-frm-modal__message p {
+	margin: 0 0 10px;
+}
+
+.iftp-frm-modal__message p:last-child {
+	margin-bottom: 0;
+}
+
+.iftp-frm-modal__close {
+	position: absolute;
+	top: 8px;
+	right: 12px;
+	width: 28px;
+	height: 28px;
+	border: none;
+	background: none;
+	font-size: 22px;
+	line-height: 1;
+	cursor: pointer;
+	color: inherit;
+	opacity: 0.6;
+}
+
+.iftp-frm-modal__close:hover {
+	opacity: 1;
+}
+
+.iftp-frm-modal__ok {
+	margin-top: 20px;
+	padding: 8px 24px;
+	border: 1px solid var(--iftp-accent, #4199fd);
+	border-radius: var(--iftp-radius, 8px);
+	background: var(--iftp-accent, #4199fd);
+	color: var(--iftp-accent-text, #fff);
+	cursor: pointer;
+	font-size: 14px;
+}
+
+.iftp-frm-modal__ok:hover {
+	background: var(--iftp-accent-hover, #3680d3);
+}
+
+@keyframes iftp-frm-pop {
+	from {
+		transform: scale(0.95);
+		opacity: 0;
+	}
+
+	to {
+		transform: scale(1);
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.iftp-frm-modal__box {
+		animation: none;
+	}
+}
+
+/*
+ * Waiting-for-payment overlay: a transparent-black, full-screen scrim shown
+ * on the *original* page while the payment page is open in its own real
+ * popup window/tab that Formidable's own front-end script opened natively
+ * (assets/js/frontend.js's `frmBeforeFormRedirect` listener) — blocks
+ * interaction with the (otherwise blank — see that listener's own docblock)
+ * page behind it while the payer completes payment there, until
+ * RedirectHandler::handle_status()'s poll resolves one way or another.
+ * Deliberately NOT themed with the merchant's form colors, unlike
+ * .iftp-frm-modal above — it's a transient "please wait" state, not a
+ * payment outcome the merchant's own form-style success/error colors are
+ * meant to represent.
+ */
+.iftp-frm-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100000;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 20px;
+	background: rgb(0 0 0 / 82%);
+	color: #fff;
+	font-size: 15px;
+	line-height: 1.5;
+	text-align: center;
+	overflow: hidden;
+}
+
+.iftp-frm-overlay__spinner {
+	width: 40px;
+	height: 40px;
+	border: 3px solid rgb(255 255 255 / 25%);
+	border-top-color: #fff;
+	border-radius: 50%;
+	animation: iftp-frm-spin 0.8s linear infinite;
+}
+
+.iftp-frm-overlay__text {
+	margin: 0;
+	padding: 0 24px;
+	max-width: 360px;
+}
+
+.iftp-frm-overlay__brand {
+	position: absolute;
+	bottom: 28px;
+	margin: 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: rgb(255 255 255 / 60%);
+}
+
+.iftp-frm-overlay__brand img {
+	height: 18px;
+	width: auto;
+	display: block;
+}
+
+@keyframes iftp-frm-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.iftp-frm-overlay__spinner {
+		animation-duration: 2s;
+	}
+}
+
+/*
+ * Payment-method block (PaymentSelector.php), rendered at
+ * `frm_before_submit_btn` — structurally similar to Formidable's own bundled
+ * PayPal module's row-list layout (bordered container, icon-row column with
+ * fixed-height/auto-width/spaced icons) without reusing its actual CSS
+ * classes, since PayPal's own JS queries some of those class names directly
+ * and a same-named-but-foreign row could confuse it. ifthenpay is always the
+ * pre-selected/only method here (no radio to choose it — see
+ * PaymentSelector::render()), so this is an informational badge + a "Pay"
+ * button, not a choice; assets/js/frontend.js still watches for the payer
+ * picking a *different* method elsewhere on the form (e.g. Formidable's own
+ * Card/PayPal row) and hides this block's button in that case. Colored with
+ * the merchant's own form-style colors (the same ones .iftp-frm-modal above
+ * uses) via the inline `style` attribute PaymentSelector::render() outputs,
+ * not hardcoded like PayPal's blue.
+ */
+.iftp-frm-method-block {
+	max-width: 500px;
+	margin: 16px 0;
+}
+
+.iftp-frm-method-block[hidden] {
+	display: none !important;
+}
+
+.iftp-frm-method-selector {
+	border: 1px solid #e0e0e0;
+	border-radius: var(--iftp-radius, 8px);
+	overflow: hidden;
+}
+
+.iftp-frm-method-option {
+	display: flex;
+	align-items: center;
+	padding: 16px 16px 14px;
+}
+
+.iftp-frm-method-marks {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.iftp-frm-method-mark {
+	height: 24px;
+	width: auto;
+	display: block;
+}
+
+.iftp-frm-method-sep {
+	width: 1px;
+	height: 20px;
+	background: #d0d5dd;
+	margin: 0 2px;
+}
+
+.iftp-frm-method-action {
+	margin-top: 12px;
+}
+
+.iftp-frm-method-action[hidden] {
+	display: none !important;
+}
+
+.iftp-frm-pay-button {
+	width: 100%;
+	padding: 10px 16px;
+	border: 1px solid var(--iftp-accent, #4199fd);
+	border-radius: var(--iftp-radius, 8px);
+	background: var(--iftp-accent, #4199fd);
+	color: var(--iftp-accent-text, #fff);
+	font-size: 15px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.iftp-frm-pay-button:hover {
+	background: var(--iftp-accent-hover, #3680d3);
+}

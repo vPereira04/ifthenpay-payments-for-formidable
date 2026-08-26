@@ -1,0 +1,17 @@
+{
+    "name": "ifthenpay/ifthenpay-payments-for-formidable",
+    "description": "ifthenpay Pay by Link integration for Formidable Forms",
+    "type": "wordpress-plugin",
+    "license": "GPL-3.0-or-later",
+    "require": {
+        "php": ">=7.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ifthenpay\\Formidable\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
