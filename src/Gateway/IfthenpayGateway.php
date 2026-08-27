@@ -125,13 +125,12 @@ class IfthenpayGateway {
 
 		// One secret, minted here and reused everywhere this entry's payment
 		// is referenced again later: the success/error/cancel return URLs
-		// ifthenpay sends the payer back to, the same-tab "open the payment
-		// link" wrapper URL (RedirectHandler::handle_open()), and the
-		// original tab's status-poll requests while it's waiting
-		// (RedirectHandler::handle_status()). Entry ids are small sequential
-		// ints and every one of those endpoints is otherwise unauthenticated
-		// (`wp_ajax_nopriv_*`), so without it any of them could be probed by
-		// guessing `?entry=<id>` for another payer's in-flight payment.
+		// ifthenpay sends the payer back to, and the same-tab "open the
+		// payment link" wrapper URL (RedirectHandler::handle_open()). Entry
+		// ids are small sequential ints and every one of those endpoints is
+		// otherwise unauthenticated (`wp_ajax_nopriv_*`), so without it any of
+		// them could be probed by guessing `?entry=<id>` for another payer's
+		// in-flight payment.
 		$token = wp_generate_password( 32, false );
 
 		$payload_builder = new IfthenpayPayload( $settings );

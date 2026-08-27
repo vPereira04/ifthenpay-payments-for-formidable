@@ -27,8 +27,10 @@ class SettingsRepository {
 	const OPT_ACTIVATION_CACHE = 'frm_ifthenpay_activation_requested_';
 	const OPT_MSG_SUCCESS      = 'frm_ifthenpay_msg_success';
 	const OPT_MSG_PENDING      = 'frm_ifthenpay_msg_pending';
-	const OPT_MSG_CANCELED     = 'frm_ifthenpay_msg_canceled';
-	const OPT_MSG_FAILED       = 'frm_ifthenpay_msg_failed';
+	const OPT_MODE_SUCCESS     = 'frm_ifthenpay_mode_success';
+	const OPT_MODE_PENDING     = 'frm_ifthenpay_mode_pending';
+	const OPT_URL_SUCCESS      = 'frm_ifthenpay_url_success';
+	const OPT_URL_PENDING      = 'frm_ifthenpay_url_pending';
 
 	/**
 	 * @return bool
@@ -211,6 +213,51 @@ class SettingsRepository {
 	}
 
 	/**
+	 * 'message' (default), 'redirect', or 'open_new_tab' — Payment Received
+	 * has a third, ifthenpay-only mode with no Formidable native equivalent:
+	 * show the popup message on this page AND open the configured URL in a
+	 * new tab alongside it.
+	 *
+	 * Fallback-only precedence: whenever the form's own native On Submit
+	 * action is already a real "Redirect to URL", that always wins over
+	 * this setting entirely, exactly as before this setting existed — see
+	 * `RedirectHandler::success_mode_target()`. This setting only ever
+	 * takes effect for a form left on Formidable's native default "Show
+	 * Message" confirmation.
+	 *
+	 * @return string
+	 */
+	public function get_success_mode() {
+		$mode = get_option( self::OPT_MODE_SUCCESS, 'message' );
+		return in_array( $mode, array( 'redirect', 'open_new_tab' ), true ) ? $mode : 'message';
+	}
+
+	/**
+	 * @param string $mode
+	 *
+	 * @return void
+	 */
+	public function save_success_mode( $mode ) {
+		update_option( self::OPT_MODE_SUCCESS, in_array( $mode, array( 'redirect', 'open_new_tab' ), true ) ? $mode : 'message', false );
+	}
+
+	/**
+	 * @return string
+	 */
+	public function get_success_redirect_url() {
+		return (string) get_option( self::OPT_URL_SUCCESS, '' );
+	}
+
+	/**
+	 * @param string $url
+	 *
+	 * @return void
+	 */
+	public function save_success_redirect_url( $url ) {
+		update_option( self::OPT_URL_SUCCESS, esc_url_raw( $url ), false );
+	}
+
+	/**
 	 * @return string
 	 */
 	public function get_pending_message() {
@@ -228,37 +275,47 @@ class SettingsRepository {
 	}
 
 	/**
+	 * 'message' (default, the popup text above), 'redirect', or
+	 * 'open_new_tab' — the same three-way choice as Payment Received (see
+	 * get_success_mode()'s own docblock: 'open_new_tab' shows the message
+	 * here AND opens the configured URL in a new tab, e.g. the same
+	 * "Thank you" page Payment Received redirects to, while this popup still
+	 * tells the payer their payment is being confirmed) — but scoped to this
+	 * plugin's own Payment Pending outcome, which (unlike Payment Received)
+	 * has no native Formidable On Submit equivalent to ever defer to, so this
+	 * setting is always authoritative, never just a fallback — see
+	 * RedirectHandler::build_destination().
+	 *
 	 * @return string
 	 */
-	public function get_canceled_message() {
-		$value = get_option( self::OPT_MSG_CANCELED, '' );
-		return '' !== $value ? (string) $value : __( 'You canceled the payment before it was completed.', 'ifthenpay-payments-for-formidable' );
+	public function get_pending_mode() {
+		$mode = get_option( self::OPT_MODE_PENDING, 'message' );
+		return in_array( $mode, array( 'redirect', 'open_new_tab' ), true ) ? $mode : 'message';
 	}
 
 	/**
-	 * @param string $message
+	 * @param string $mode
 	 *
 	 * @return void
 	 */
-	public function save_canceled_message( $message ) {
-		update_option( self::OPT_MSG_CANCELED, sanitize_textarea_field( $message ), false );
+	public function save_pending_mode( $mode ) {
+		update_option( self::OPT_MODE_PENDING, in_array( $mode, array( 'redirect', 'open_new_tab' ), true ) ? $mode : 'message', false );
 	}
 
 	/**
 	 * @return string
 	 */
-	public function get_failed_message() {
-		$value = get_option( self::OPT_MSG_FAILED, '' );
-		return '' !== $value ? (string) $value : __( 'Your payment could not be completed. Please try again.', 'ifthenpay-payments-for-formidable' );
+	public function get_pending_redirect_url() {
+		return (string) get_option( self::OPT_URL_PENDING, '' );
 	}
 
 	/**
-	 * @param string $message
+	 * @param string $url
 	 *
 	 * @return void
 	 */
-	public function save_failed_message( $message ) {
-		update_option( self::OPT_MSG_FAILED, sanitize_textarea_field( $message ), false );
+	public function save_pending_redirect_url( $url ) {
+		update_option( self::OPT_URL_PENDING, esc_url_raw( $url ), false );
 	}
 
 	/**

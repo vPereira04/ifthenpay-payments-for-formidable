@@ -209,6 +209,91 @@
 	width: calc( 25% - var( --gap-sm ) );
 }
 
+/* ---- Popup Messages: Show Message / Redirect to URL / Open in a New Tab
+ * mode picker ----
+ * Deliberately mirrors Formidable's own native On Submit "Confirmation"
+ * picker (bordered, radio-selectable boxes in a row) for visual consistency
+ * with the screen it sits right next to — own inline SVGs, not Formidable's
+ * private sprite (see settings-tab.php's own comment on this). Icon and
+ * label sit side by side within each box, not stacked.
+ */
+.iftp-frm-outcome-mode {
+	display: flex;
+	gap: 12px;
+	margin-bottom: 8px;
+	max-width: 480px;
+}
+
+.iftp-frm-outcome-box {
+	position: relative;
+	flex: 1 1 0;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 3px 14px;
+	border: 2px solid #dcdcde;
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 500;
+	color: #1d2327;
+	transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.iftp-frm-outcome-box:hover {
+	border-color: #8c8f94;
+}
+
+/* Visually hidden but still focusable/announced — clicking anywhere in the
+ * box selects it via the native <label> wrapping the input; no visible
+ * radio dot, matching the reference design. */
+.iftp-frm-outcome-box input[type="radio"] {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect( 0, 0, 0, 0 );
+	white-space: nowrap;
+	border: 0;
+}
+
+.iftp-frm-outcome-box__icon {
+	display: flex;
+	flex: 0 0 auto;
+}
+
+.iftp-frm-outcome-box:has( input:checked ) {
+	border-color: #2271b1;
+	color: #2271b1;
+}
+
+.iftp-frm-outcome-box:has( input:focus-visible ) {
+	outline: 2px solid #2271b1;
+	outline-offset: 2px;
+}
+
+/* Message/URL field wrappers — always block-level so Message stacks above
+ * URL (never side by side) when "Open in a New Tab" shows both at once. */
+.iftp-frm-outcome-field {
+	display: block;
+	max-width: 480px;
+	margin-top: 8px;
+}
+
+.iftp-frm-outcome-field__label {
+	display: block;
+	margin-bottom: 4px;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: #646970;
+}
+
 /* ---- Per-form "Collect Payment" action editor ----
  * Currency locked to EUR while ifthenpay is the selected gateway (JS —
  * assets/js/admin.js's syncCurrencyLock()). Not `disabled`, so its value

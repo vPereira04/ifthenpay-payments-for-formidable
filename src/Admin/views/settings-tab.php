@@ -116,36 +116,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<?php esc_html_e( 'The payment description shown on the ifthenpay hosted page comes from the form\'s own "Collect Payment" action settings (Description field), not from here.', 'ifthenpay-payments-for-formidable' ); ?>
 	</p>
 
-	<h4><?php esc_html_e( 'Popup Messages', 'ifthenpay-payments-for-formidable' ); ?></h4>
 	<p class="frm-description">
-		<?php esc_html_e( 'Shown in a popup once the payer is sent back from the ifthenpay hosted page. Formidable field shortcodes like [21] are supported. The Payment Received message here is only a fallback — when the form\'s own "On Submit → Show Message" text is available, that is shown instead.', 'ifthenpay-payments-for-formidable' ); ?>
+		<?php esc_html_e( 'The messages shown after checkout for Payment Received and Payment Pending are configured on the "Confirmation Type" tab of Global Settings, not here. Payment Canceled and Payment Failed are never configurable: the payer is always sent back to the form and shown a fixed message.', 'ifthenpay-payments-for-formidable' ); ?>
 	</p>
-	<table class="form-table">
-		<tr class="form-field">
-			<th scope="row"><label for="frm_ifthenpay_msg_success"><?php esc_html_e( 'Payment Received', 'ifthenpay-payments-for-formidable' ); ?></label></th>
-			<td>
-				<textarea id="frm_ifthenpay_msg_success" name="frm_ifthenpay_msg_success" rows="2" class="frm_with_left_label" style="width:100%;max-width:480px;"><?php echo esc_textarea( $settings->get_success_message() ); ?></textarea>
-			</td>
-		</tr>
-		<tr class="form-field">
-			<th scope="row"><label for="frm_ifthenpay_msg_pending"><?php esc_html_e( 'Payment Pending', 'ifthenpay-payments-for-formidable' ); ?></label></th>
-			<td>
-				<textarea id="frm_ifthenpay_msg_pending" name="frm_ifthenpay_msg_pending" rows="2" class="frm_with_left_label" style="width:100%;max-width:480px;"><?php echo esc_textarea( $settings->get_pending_message() ); ?></textarea>
-			</td>
-		</tr>
-		<tr class="form-field">
-			<th scope="row"><label for="frm_ifthenpay_msg_canceled"><?php esc_html_e( 'Payment Canceled', 'ifthenpay-payments-for-formidable' ); ?></label></th>
-			<td>
-				<textarea id="frm_ifthenpay_msg_canceled" name="frm_ifthenpay_msg_canceled" rows="2" class="frm_with_left_label" style="width:100%;max-width:480px;"><?php echo esc_textarea( $settings->get_canceled_message() ); ?></textarea>
-			</td>
-		</tr>
-		<tr class="form-field">
-			<th scope="row"><label for="frm_ifthenpay_msg_failed"><?php esc_html_e( 'Payment Failed', 'ifthenpay-payments-for-formidable' ); ?></label></th>
-			<td>
-				<textarea id="frm_ifthenpay_msg_failed" name="frm_ifthenpay_msg_failed" rows="2" class="frm_with_left_label" style="width:100%;max-width:480px;"><?php echo esc_textarea( $settings->get_failed_message() ); ?></textarea>
-			</td>
-		</tr>
-	</table>
 </div>
 
 <input type="hidden" name="frm_ifthenpay_settings_submitted" value="1" />

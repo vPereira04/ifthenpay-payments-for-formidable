@@ -66,6 +66,9 @@
 	right: 12px;
 	width: 28px;
 	height: 28px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	border: none;
 	background: none;
 	font-size: 22px;
@@ -73,25 +76,87 @@
 	cursor: pointer;
 	color: inherit;
 	opacity: 0.6;
+	transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
-.iftp-frm-modal__close:hover {
-	opacity: 1;
+/* No background/border "ball" behind the glyph on hover — just the × itself
+ * growing, tinted to match .iftp-frm-modal__icon's own color (green/red).
+ * Every property here is `!important`: the host theme/plugin stylesheet this
+ * loads alongside has its own `button:hover`/`:focus`/`:active` rule (brand
+ * blue background + white text) that otherwise wins outright — reproduced
+ * and confirmed on a live site, not a hypothetical; `!important` is the only
+ * thing that reliably beats an unknown, unbounded host cascade for a small
+ * self-contained control like this one (same reasoning as `.iftp-frm-modal[hidden]`
+ * above). `outline` is reset the same way, since that stylesheet's "blue" is
+ * a focus ring, not a background. */
+.iftp-frm-modal__close:hover,
+.iftp-frm-modal__close:focus-visible,
+.iftp-frm-modal__close:active {
+	opacity: 1 !important;
+	background: none !important;
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
+	color: var(--iftp-success-text, #468847) !important;
+	transform: scale(1.2);
 }
 
+.iftp-frm-modal--error .iftp-frm-modal__close:hover,
+.iftp-frm-modal--error .iftp-frm-modal__close:focus-visible,
+.iftp-frm-modal--error .iftp-frm-modal__close:active {
+	color: var(--iftp-error-text, #f04438) !important;
+}
+
+.iftp-frm-modal__close:active {
+	transform: scale(1.05);
+}
+
+/* Outline style, colored to match whichever box (success/error) this is —
+ * `currentColor`/inherit already resolves to --iftp-success-text or
+ * --iftp-error-text here, so no separate --iftp-accent lookup is needed.
+ * Background matches the box's own tint at rest (blends in); hover/focus
+ * invert to a solid fill (background becomes the text color, text becomes
+ * the bg color); active is that same inverted fill just a touch darker.
+ * Explicit per-status values throughout since an inverted fill can't be
+ * expressed as a `currentColor`/`inherit` swap in plain CSS. Every color
+ * property on the interactive states is `!important` for the same reason as
+ * .iftp-frm-modal__close above — a host `button:hover`/`:focus` rule
+ * otherwise overrides this with a brand-blue background + white text. */
 .iftp-frm-modal__ok {
 	margin-top: 20px;
 	padding: 8px 24px;
-	border: 1px solid var(--iftp-accent, #4199fd);
+	border: 1px solid currentcolor;
 	border-radius: var(--iftp-radius, 8px);
-	background: var(--iftp-accent, #4199fd);
-	color: var(--iftp-accent-text, #fff);
+	background: var(--iftp-success-bg, #dff0d8);
+	color: inherit;
 	cursor: pointer;
 	font-size: 14px;
+	font-weight: 500;
+	transition: background-color 0.15s ease, color 0.15s ease, filter 0.15s ease;
 }
 
-.iftp-frm-modal__ok:hover {
-	background: var(--iftp-accent-hover, #3680d3);
+.iftp-frm-modal__ok:hover,
+.iftp-frm-modal__ok:focus-visible {
+	background: var(--iftp-success-text, #468847) !important;
+	border-color: var(--iftp-success-text, #468847) !important;
+	color: var(--iftp-success-bg, #dff0d8) !important;
+	outline: none !important;
+	box-shadow: none !important;
+}
+
+.iftp-frm-modal__ok:active {
+	filter: brightness(0.9);
+}
+
+.iftp-frm-modal--error .iftp-frm-modal__ok {
+	background: var(--iftp-error-bg, #fee4e2);
+}
+
+.iftp-frm-modal--error .iftp-frm-modal__ok:hover,
+.iftp-frm-modal--error .iftp-frm-modal__ok:focus-visible {
+	background: var(--iftp-error-text, #f04438) !important;
+	border-color: var(--iftp-error-text, #f04438) !important;
+	color: var(--iftp-error-bg, #fee4e2) !important;
 }
 
 @keyframes iftp-frm-pop {
@@ -113,17 +178,15 @@
 }
 
 /*
- * Waiting-for-payment overlay: a transparent-black, full-screen scrim shown
- * on the *original* page while the payment page is open in its own real
- * popup window/tab that Formidable's own front-end script opened natively
- * (assets/js/frontend.js's `frmBeforeFormRedirect` listener) — blocks
- * interaction with the (otherwise blank — see that listener's own docblock)
- * page behind it while the payer completes payment there, until
- * RedirectHandler::handle_status()'s poll resolves one way or another.
- * Deliberately NOT themed with the merchant's form colors, unlike
- * .iftp-frm-modal above — it's a transient "please wait" state, not a
- * payment outcome the merchant's own form-style success/error colors are
- * meant to represent.
+ * Hand-off notice: a transparent-black, full-screen scrim shown on the
+ * *original* page for the brief moment before it closes itself, or — if the
+ * browser won't allow that (assets/js/frontend.js's `handOffToPaymentTab()`)
+ * — left in place as a static "continue in the other tab" notice. This tab
+ * has no further role in the payment; the pre-opened payment tab is the one
+ * that shows the outcome once ifthenpay sends it back. Deliberately NOT
+ * themed with the merchant's form colors, unlike .iftp-frm-modal above —
+ * it's a transient hand-off state, not a payment outcome the merchant's own
+ * form-style success/error colors are meant to represent.
  */
 .iftp-frm-overlay {
 	position: fixed;
@@ -140,15 +203,6 @@
 	line-height: 1.5;
 	text-align: center;
 	overflow: hidden;
-}
-
-.iftp-frm-overlay__spinner {
-	width: 40px;
-	height: 40px;
-	border: 3px solid rgb(255 255 255 / 25%);
-	border-top-color: #fff;
-	border-radius: 50%;
-	animation: iftp-frm-spin 0.8s linear infinite;
 }
 
 .iftp-frm-overlay__text {
@@ -172,18 +226,6 @@
 	height: 18px;
 	width: auto;
 	display: block;
-}
-
-@keyframes iftp-frm-spin {
-	to {
-		transform: rotate(360deg);
-	}
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.iftp-frm-overlay__spinner {
-		animation-duration: 2s;
-	}
 }
 
 /*

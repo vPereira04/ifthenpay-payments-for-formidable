@@ -9,6 +9,7 @@
 		$( document ).on( 'click', '.iftp-frm-activate-btn', onActivateMethod );
 		$( document ).on( 'change', '.iftp-frm-method-enabled', onMethodEnabledChanged );
 		$( document ).on( 'change', '.iftp-frm-method-star-input', onDefaultMethodChanged );
+		$( document ).on( 'change', '.iftp-frm-outcome-mode-input', onOutcomeModeChanged );
 		$( document ).on( 'submit', 'form.frm_settings_form', onGlobalSettingsSubmit );
 
 		// Initialize star visibility to match each row's current "Enabled"
@@ -371,6 +372,32 @@
 			$starInput.prop( 'disabled', true );
 			$star.addClass( 'iftp-frm-method-star--hidden' );
 		}
+	}
+
+	// -------------------------------------------------------------------
+	// Popup Messages: Show Message / Redirect to URL / (Payment Received
+	// only) Open in a New Tab, per outcome — pure client-side, no AJAX;
+	// mirrors Formidable's own native On Submit "Confirmation" mode picker,
+	// scoped to this plugin's own outcomes (see settings-tab.php /
+	// RedirectHandler). Each outcome has exactly two fields: the message
+	// textarea (`data-mode="message"`) and a URL input (`data-mode="url"`).
+	// "Redirect to URL" is the only mode with no message at all (it just
+	// navigates away) and "Show Message" is the only one with no URL — Open
+	// in a New Tab needs and shows both, since the message appears on this
+	// page while the URL opens alongside it in the new tab.
+	// -------------------------------------------------------------------
+
+	function onOutcomeModeChanged() {
+		var $input = $( this );
+		var outcome = $input.data( 'outcome' );
+		var mode = $input.val();
+
+		$( '.iftp-frm-outcome-field[data-outcome="' + outcome + '"]' ).each( function () {
+			var $field = $( this );
+			var fieldMode = $field.data( 'mode' );
+			var hidden = ( 'message' === fieldMode && 'redirect' === mode ) || ( 'url' === fieldMode && 'message' === mode );
+			$field.toggleClass( 'frm_hidden', hidden );
+		} );
 	}
 
 	// -------------------------------------------------------------------

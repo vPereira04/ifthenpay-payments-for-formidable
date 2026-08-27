@@ -15,16 +15,22 @@ use Ifthenpay\Formidable\Settings\SettingsRepository;
 use Ifthenpay\Formidable\Webhook\WebhookController;
 
 /**
- * Renders ifthenpay as a sibling "pill" tab inside Formidable's own built-in
- * Payments section, next to PayPal/Stripe/Square — NOT as a separate
- * top-level Global Settings tab.
+ * Renders two separate ifthenpay admin surfaces on Formidable's Global
+ * Settings screen (`page=formidable-settings`):
+ *  - The account/gateway settings (Backoffice Key, Gateway Key, Methods,
+ *    Expiry Days) as a sibling "pill" tab inside Formidable's own built-in
+ *    Payments section, next to PayPal/Stripe/Square.
+ *  - "Confirmation Type" (Payment Received/Pending message+mode+URL) as its
+ *    own top-level tab, sibling to General/Permissions/Payments/etc — see
+ *    `register_confirmation_settings_tab()`.
  *
  * Formidable's `FrmSettingsController::remove_payments_sections()` pulls
  * PayPal/Stripe/Square/Authorize.Net out of the generic `frm_add_settings_section`
  * filter and into its own hardcoded nested tab strip (`classes/views/frm-settings/payments.php`,
  * the `.frm-long-icon-buttons` pill row). That allowlist is hardcoded with no
- * filter of its own, so a 3rd-party gateway cannot register into it from PHP.
- * Instead, this class:
+ * filter of its own, so a 3rd-party gateway cannot register into it from PHP —
+ * which is why the gateway settings use a different mechanism than the
+ * Confirmation Type tab:
  *  - Hooks `frm_payments_settings_form` (fires once, right after Formidable's
  *    own Payments panel markup — pill row + PayPal/Stripe/Square panels — has
  *    already been output, still inside the shared `#payments_settings` wrapper)
@@ -37,12 +43,20 @@ use Ifthenpay\Formidable\Webhook\WebhookController;
  *    gateways, so once our pill/panel exist with matching attributes, the
  *    native behavior picks them up with no extra JS of our own for the actual
  *    switching — only for the one-time DOM insertion.
+ *  - Confirmation Type, by contrast, is a completely ordinary top-level
+ *    section registered through the generic `frm_add_settings_section`
+ *    filter (see `register_confirmation_settings_tab()`) — Formidable's own
+ *    `classes/views/frm-settings/form.php` renders it, and its own
+ *    `classes/views/frm-settings/tabs.php` lists it in the sidebar, with no
+ *    custom JS/markup of ours needed for either.
  *
- * Persists the six-field contract's non-AJAX-managed fields on save via the
- * unconditional `frm_update_settings` action, which fires from
- * `FrmSettings::update()` for the whole settings form regardless of which
- * section registered it — the exact same hook PayPal/Stripe/Square use for
- * their own `process_form()`.
+ * Both tabs' fields are persisted on save via the unconditional
+ * `frm_update_settings` action, which fires from `FrmSettings::update()` for
+ * the whole settings form regardless of which section(s) registered fields —
+ * the exact same hook PayPal/Stripe/Square use for their own `process_form()`.
+ * All of Formidable's Global Settings tabs share one `<form>`/one Save button
+ * (`classes/views/frm-settings/form.php`), so a single `process_form()` here
+ * covers both.
  *
  * The Backoffice Key is intentionally never part of this form's fields —
  * see blueprint §8.4 (write-only credential, connect/disconnect is AJAX-only).
@@ -54,6 +68,7 @@ class SettingsField {
 	 */
 	public static function boot() {
 		add_action( 'frm_payments_settings_form', array( self::class, 'render_payments_pill_panel' ) );
+		add_filter( 'frm_add_settings_section', array( self::class, 'register_confirmation_settings_tab' ) );
 		add_action( 'frm_update_settings', array( self::class, 'process_form' ) );
 		add_action( 'admin_enqueue_scripts', array( self::class, 'maybe_enqueue_assets' ) );
 		add_action( 'frm_pay_ifthenpay_sidebar', array( self::class, 'hide_refund_link' ) );
@@ -175,6 +190,37 @@ class SettingsField {
 	}
 
 	/**
+	 * Adds "Confirmation Type" as its own top-level Global Settings tab,
+	 * sibling to General/Permissions/Payments/etc — the generic extension
+	 * point third-party plugins use for a genuinely new section (unlike the
+	 * Payments-pill mechanism `render_payments_pill_panel()` uses, which only
+	 * exists because Formidable's own Payments tab has no filter of its own —
+	 * see this class's own docblock).
+	 *
+	 * @param array<array> $sections
+	 *
+	 * @return array<array>
+	 */
+	public static function register_confirmation_settings_tab( $sections ) {
+		$sections['ifthenpay_confirmation'] = array(
+			'class'    => self::class,
+			'function' => 'render_confirmation_settings_tab',
+			'name'     => __( 'Confirmation Type', 'ifthenpay-payments-for-formidable' ),
+			'icon'     => 'frmfont frm_chat_bubbles_icon',
+		);
+
+		return $sections;
+	}
+
+	/**
+	 * @return void
+	 */
+	public static function render_confirmation_settings_tab() {
+		$settings = new SettingsRepository();
+		include IFTP_FRM_DIR . 'src/Admin/views/confirmation-settings-tab.php';
+	}
+
+	/**
 	 * Renders just the `<tr>` rows of the methods table — shared between the
 	 * initial page render and the AJAX response from
 	 * `Ajax\Controller::select_gateway_key()` so the markup never drifts
@@ -241,13 +287,20 @@ class SettingsField {
 		$settings->save_default_method( $default_is_enabled ? $default_method : '' );
 
 		self::save_popup_messages( $settings );
+		self::save_outcome_redirects( $settings );
 		self::maybe_activate_callback( $settings );
 	}
 
 	/**
-	 * Persists the four popup message textareas (Settings\SettingsRepository's
-	 * own setters sanitize each value) — every one is optional, an empty
-	 * submission just means "keep using the built-in default text".
+	 * Persists the Payment Received / Payment Pending popup message textareas
+	 * (Settings\SettingsRepository's own setters sanitize each value) — every
+	 * one is optional, an empty submission just means "keep using the
+	 * built-in default text". Payment Canceled/Failed have no message setting
+	 * of their own — they always show a fixed, hardcoded message (see
+	 * RedirectHandler::resolve_message()). Fields live on the "Confirmation
+	 * Type" tab (`confirmation-settings-tab.php`), but this always runs on
+	 * every settings save regardless of which tab was visually active — see
+	 * this class's own docblock.
 	 *
 	 * @param SettingsRepository $settings
 	 *
@@ -255,15 +308,51 @@ class SettingsField {
 	 */
 	private static function save_popup_messages( SettingsRepository $settings ) {
 		$fields = array(
-			'frm_ifthenpay_msg_success'  => 'save_success_message',
-			'frm_ifthenpay_msg_pending'  => 'save_pending_message',
-			'frm_ifthenpay_msg_canceled' => 'save_canceled_message',
-			'frm_ifthenpay_msg_failed'   => 'save_failed_message',
+			'frm_ifthenpay_msg_success' => 'save_success_message',
+			'frm_ifthenpay_msg_pending' => 'save_pending_message',
 		);
 
 		foreach ( $fields as $field => $setter ) {
 			if ( isset( $_POST[ $field ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by FrmSettingsController::process_form() before frm_update_settings fires.
 				$settings->$setter( wp_unslash( $_POST[ $field ] ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.NonceVerification.Missing -- sanitized inside the setter.
+			}
+		}
+	}
+
+	/**
+	 * Persists the Show Message / Redirect to URL / Open in a New Tab mode +
+	 * target URL for Payment Received and Payment Pending. Payment Received's
+	 * own mode is fallback-only: `SettingsRepository::get_success_mode()`'s
+	 * own docblock and `RedirectHandler::success_mode_target()` are what
+	 * actually enforce that a form's own native On Submit "Redirect to URL"
+	 * action still wins over it — this method just persists whatever was
+	 * submitted, same "every field optional" contract as
+	 * save_popup_messages() above.
+	 *
+	 * @param SettingsRepository $settings
+	 *
+	 * @return void
+	 */
+	private static function save_outcome_redirects( SettingsRepository $settings ) {
+		$modes = array(
+			'frm_ifthenpay_mode_success' => 'save_success_mode',
+			'frm_ifthenpay_mode_pending' => 'save_pending_mode',
+		);
+
+		foreach ( $modes as $field => $setter ) {
+			if ( isset( $_POST[ $field ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by FrmSettingsController::process_form() before frm_update_settings fires.
+				$settings->$setter( sanitize_text_field( wp_unslash( $_POST[ $field ] ) ) );
+			}
+		}
+
+		$urls = array(
+			'frm_ifthenpay_url_success' => 'save_success_redirect_url',
+			'frm_ifthenpay_url_pending' => 'save_pending_redirect_url',
+		);
+
+		foreach ( $urls as $field => $setter ) {
+			if ( isset( $_POST[ $field ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by FrmSettingsController::process_form() before frm_update_settings fires.
+				$settings->$setter( wp_unslash( $_POST[ $field ] ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.NonceVerification.Missing -- sanitized (esc_url_raw) inside the setter.
 			}
 		}
 	}

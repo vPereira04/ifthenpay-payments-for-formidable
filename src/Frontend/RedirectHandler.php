@@ -19,15 +19,22 @@ use Ifthenpay\Formidable\Settings\SettingsRepository;
  * the full trace) — the URL is a same-origin wrapper (`handle_open()`)
  * rather than the real ifthenpay URL directly, so `assets/js/frontend.js`
  * can recognize it and open it in a *new* tab, keeping the payer's original
- * tab in place instead of navigating it away. That original tab then polls
- * `handle_status()` while the payment is in progress. Once ifthenpay sends
- * the payer back (`handle_return()`, in the new tab, or the original one as
- * a no-JS fallback), the real payment status is confirmed server-to-server
- * by `WebhookController` — this class only decides which of the four
- * outcomes to show and hands the payer back to the real "Redirect to URL"
- * target on success, or a themed popup otherwise (`maybe_render_modal()`,
- * driven either by the return trip's own query string or by handle_status()
- * returning the same rendering to the original tab's poll).
+ * tab in place only long enough to hand off: that original tab then either
+ * closes itself or, if the browser won't allow that, shows a static "continue
+ * in the other tab" notice and does nothing further — it is NOT involved in
+ * showing the outcome. The *new* tab is the one that stays open and does
+ * everything else: it goes to the real ifthenpay page, and once ifthenpay
+ * sends it back (`handle_return()` — the real payment status is confirmed
+ * server-to-server by `WebhookController`, this class only decides which of
+ * the four outcomes to show), that same tab either redirects straight to the
+ * merchant's own "Redirect to URL" target, or shows a themed popup right
+ * there (`maybe_render_modal()`), never trying to close itself. Deliberately
+ * NOT a two-tab "original tab polls, second tab tries to self-close and
+ * race the poll" design — an earlier version of this class worked that way
+ * and was fragile: a same-origin redirect chain can lose the auxiliary
+ * "opened by script" relationship a same-tab `window.close()` needs (e.g. an
+ * intermediate page setting a Cross-Origin-Opener-Policy header), so the tab
+ * meant to disappear could get silently stuck open instead.
  */
 class RedirectHandler {
 
@@ -62,8 +69,6 @@ class RedirectHandler {
 		add_action( 'wp_ajax_nopriv_ifthenpay_frm_return', array( self::class, 'handle_return' ) );
 		add_action( 'wp_ajax_ifthenpay_frm_open', array( self::class, 'handle_open' ) );
 		add_action( 'wp_ajax_nopriv_ifthenpay_frm_open', array( self::class, 'handle_open' ) );
-		add_action( 'wp_ajax_ifthenpay_frm_status', array( self::class, 'handle_status' ) );
-		add_action( 'wp_ajax_nopriv_ifthenpay_frm_status', array( self::class, 'handle_status' ) );
 		add_action( 'wp_enqueue_scripts', array( self::class, 'maybe_enqueue_frontend_assets' ) );
 		add_action( 'wp_footer', array( self::class, 'maybe_render_modal' ) );
 	}
@@ -277,10 +282,11 @@ class RedirectHandler {
 	 * script (`js/formidable.js`'s `doRedirect()`) then does
 	 * `window.open(response.redirect, '_blank')` itself instead of
 	 * navigating the current tab away, so the payer's original tab stays on
-	 * the form to run assets/js/frontend.js's own `frmBeforeFormRedirect`
-	 * listener (shows the waiting overlay, starts polling handle_status())
-	 * while the new tab lands on handle_open() and 302s straight to the real
-	 * ifthenpay URL. Without JS at all, Formidable's own code falls back to
+	 * the form long enough to run assets/js/frontend.js's own
+	 * `frmBeforeFormRedirect` listener (hands off to the new tab and closes
+	 * itself, or shows a static "continue in the other tab" notice) while the
+	 * new tab lands on handle_open() and 302s straight to the real ifthenpay
+	 * URL. Without JS at all, Formidable's own code falls back to
 	 * `window.location = response.redirect` regardless, landing on the exact
 	 * same handle_open() 302 in the current tab instead — a transparent,
 	 * no-JS-required fallback for the single-tab flow.
@@ -321,7 +327,7 @@ class RedirectHandler {
 	 * Formidable only takes its fast, single-action redirect path
 	 * (`FrmFormsController::redirect_after_submit()`, JSON `response.redirect`,
 	 * which fires the `frmBeforeFormRedirect` event `assets/js/frontend.js`
-	 * relies on for the pre-opened tab / waiting overlay / status poll) when
+	 * relies on for the pre-opened tab / hand-off) when
 	 * exactly one On Submit "Confirmation" action is met for the entry. As
 	 * soon as a merchant's own message-type confirmation is *also* met
 	 * alongside our synthetic redirect one (the normal case), Formidable's
@@ -519,21 +525,12 @@ class RedirectHandler {
 		// necessarily `wp_ajax_nopriv_*`.
 		$outcome = self::resolve_outcome( $entry_id, $token_ok ? $status_param : '' );
 
-		// Neither transient is cleared here, deliberately. CONTEXT_TRANSIENT_PREFIX:
-		// the popup needs it on the *next* page load (after this redirect
-		// completes) to resolve the actual message — see compute_modal_data().
-		// TRANSIENT_PREFIX: it still holds the `transaction_id` maybe_sync_payment_status()
-		// needs — the *original* tab (still on the form, showing the waiting
-		// overlay) keeps polling handle_status() after this return trip has
-		// already happened, and relies on that same transaction_id to keep
-		// asking ifthenpay directly whether a still-'pending' payment has
-		// actually gone through, for as long as the webhook (server-to-server,
-		// and possibly slower than either browser, or — on a site that isn't
-		// publicly reachable, e.g. local development — never arriving at all)
-		// hasn't landed yet. Deleting it here used to leave that poll with no
-		// way to ever resolve a payment the webhook never confirms. Both
-		// self-delete via their own short TTL (self::TRANSIENT_TTL) either way,
-		// which already covers an abandoned redirect.
+		// CONTEXT_TRANSIENT_PREFIX is deliberately not cleared here — this
+		// same tab's *next* page load (this redirect's own destination, one
+		// hop away for the message/open_new_tab modes) needs it to resolve the
+		// actual message via compute_modal_data(). Self-deletes via its own
+		// short TTL (self::TRANSIENT_TTL) either way, which already covers an
+		// abandoned redirect.
 
 		// Reuses the one token IfthenpayGateway::trigger() minted for this
 		// entry's whole lifecycle rather than minting a new one — handing a
@@ -543,9 +540,19 @@ class RedirectHandler {
 
 		// A merchant's own "Redirect to URL" target is allowed to be off-site
 		// (Formidable's own redirect_after_submit() uses plain wp_redirect()
-		// for exactly this reason) — only that branch of build_destination()
-		// can return one, everything else stays on this site.
-		if ( 'success' === $outcome && isset( $context['success_info']['type'] ) && 'redirect' === $context['success_info']['type'] ) {
+		// for exactly this reason) — only these two branches of
+		// build_destination() can return one (Payment Received's own
+		// success_mode_target(), or this plugin's own Pending redirect
+		// setting — see outcome_redirect_url()), everything else stays on
+		// this site. 'open_new_tab' is deliberately excluded here — it never
+		// navigates *this* page away, only opens an extra tab once the popup
+		// itself renders (see build_modal_html()). Canceled/Failed can never
+		// be a configured redirect — they always send the payer back to the
+		// form with a fixed message.
+		$is_configured_redirect = ( 'success' === $outcome && 'redirect' === self::success_mode_target( $context )['mode'] )
+			|| ( 'pending' === $outcome && '' !== self::outcome_redirect_url( $outcome ) );
+
+		if ( $is_configured_redirect ) {
 			wp_redirect( $destination ); // phpcs:ignore WordPress.Security.SafeRedirect
 			exit;
 		}
@@ -582,11 +589,14 @@ class RedirectHandler {
 		// than only ever resolving once/if that async webhook arrives (which,
 		// on a site that isn't publicly reachable from ifthenpay's servers —
 		// e.g. local development — may be never), ask ifthenpay directly for
-		// this attempt's real-time status right now: the same synchronous
-		// fallback handle_status()'s poll already relies on for the *other*
-		// tab. A no-op for an offline method (Multibanco, Payshop) or if
-		// ifthenpay never returned a transaction id for this attempt — see
-		// maybe_sync_payment_status()'s own docblock.
+		// this attempt's real-time status right now — this is the ONE chance
+		// to resolve it synchronously, since this tab shows whatever outcome
+		// this call returns and there is no later poll to catch up if it
+		// hasn't settled yet. A no-op for an offline method (Multibanco,
+		// Payshop) or if ifthenpay never returned a transaction id for this
+		// attempt — see maybe_sync_payment_status()'s own docblock; either way
+		// falls through to the 'pending' outcome below, and the webhook still
+		// completes the payment server-side whenever it does land.
 		if ( $payment && 'pending' === $payment->status ) {
 			self::maybe_sync_payment_status( $payment, $entry_id );
 			$payment = ( new \FrmTransLitePayment() )->get_one( $payment->id );
@@ -666,17 +676,29 @@ class RedirectHandler {
 	 * @return string
 	 */
 	private static function build_destination( $outcome, $context, $entry_id, $token = null ) {
-		$success_info = isset( $context['success_info'] ) ? $context['success_info'] : array();
-		$referrer     = ! empty( $context['referrer'] ) ? $context['referrer'] : home_url( '/' );
+		$referrer = ! empty( $context['referrer'] ) ? $context['referrer'] : home_url( '/' );
 
-		if ( 'success' === $outcome && 'redirect' === ( $success_info['type'] ?? '' ) && ! empty( $success_info['url'] ) ) {
-			// The merchant already configured a real "Redirect to URL". Used
-			// as captured at submit time (IfthenpayGateway::capture_real_success_info()) —
-			// any Formidable field-value shortcodes in it are NOT re-resolved
-			// here the way a normal, same-request redirect would; a static
-			// URL is the common case and works as-is.
-			return esc_url_raw( $success_info['url'] );
+		if ( 'success' === $outcome ) {
+			$target = self::success_mode_target( $context );
+
+			if ( 'redirect' === $target['mode'] ) {
+				return $target['url'];
+			}
+
+			// 'message' and 'open_new_tab' both stay on-site (the popup query
+			// string below) — open_new_tab's extra tab is opened client-side
+			// once the popup itself renders, see build_modal_html().
+		} elseif ( 'pending' === $outcome ) {
+			$redirect_url = self::outcome_redirect_url( $outcome );
+
+			if ( '' !== $redirect_url ) {
+				return $redirect_url;
+			}
 		}
+
+		// Canceled and Failed always fall through to here — the payer is
+		// always sent back to the form page (referrer) with the popup query
+		// string below, never a configured redirect.
 
 		$args = array(
 			'ifthenpay_notice' => $outcome,
@@ -691,117 +713,122 @@ class RedirectHandler {
 	}
 
 	/**
-	 * Polled by assets/js/frontend.js from the *original* tab (the one that
-	 * pre-opened a new tab for the payment page and is now waiting) instead
-	 * of that tab navigating anywhere itself — see IfthenpayGateway::trigger()
-	 * for why every one of these entry-scoped endpoints needs the same token.
+	 * Resolves what Payment Received should actually do, in the same
+	 * fallback-only precedence order everywhere this outcome is decided
+	 * (build_destination(), handle_return()'s off-site check,
+	 * compute_modal_data()) — kept as one shared helper so that precedence
+	 * can never drift between those call sites:
 	 *
-	 * Responds with the exact same rendering compute_modal_data()/
-	 * resolve_message() would produce for a real return-trip page load, so
-	 * the terminal state (success, canceled, failed) looks identical whether
-	 * the *original* tab reaches it via this poll or the ifthenpay tab
-	 * reaches it via handle_return()'s own query-string flow.
+	 * 1. The form's own native On Submit "Redirect to URL" action, captured
+	 *    at submit time (`IfthenpayGateway::capture_real_success_info()`) —
+	 *    always wins when present. Any Formidable field-value shortcodes in
+	 *    it are NOT re-resolved here the way a normal, same-request redirect
+	 *    would; a static URL is the common case and works as-is.
+	 * 2. Otherwise (the form was left on Formidable's native default "Show
+	 *    Message" confirmation), this plugin's own Payment Received setting
+	 *    (`SettingsRepository::get_success_mode()`) decides: 'redirect'
+	 *    (a real page redirect) or 'open_new_tab' (stays on the popup, but
+	 *    the caller should also open `url` in a new tab — see
+	 *    build_modal_html()). Falls back to 'message' when no URL is
+	 *    configured for either of those, same as `outcome_redirect_url()`
+	 *    does for Pending.
 	 *
-	 * @return void
+	 * @param array $context From `get_context()` — needs `success_info`.
+	 *
+	 * @return array{mode:string, url:string} `url` is always empty when `mode` is 'message'.
 	 */
-	public static function handle_status() {
-		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only poll from the payer's own tab, token-gated below.
-		$entry_id = isset( $_GET['entry'] ) ? absint( wp_unslash( $_GET['entry'] ) ) : 0;
-		$token    = isset( $_GET['token'] ) ? sanitize_text_field( wp_unslash( $_GET['token'] ) ) : '';
-		// phpcs:enable WordPress.Security.NonceVerification.Recommended
-
-		$context      = $entry_id ? self::get_context( $entry_id ) : array();
-		$stored_token = isset( $context['token'] ) ? $context['token'] : '';
-
-		if ( ! $entry_id || '' === $stored_token || ! hash_equals( $stored_token, $token ) || ! class_exists( 'FrmTransLitePayment' ) ) {
-			// Same fail-safe default as an invalid/guessed entry id elsewhere
-			// in this class: never confirm or deny anything about a payment
-			// the caller can't prove is theirs — just keep them "waiting".
-			wp_send_json( array( 'status' => 'pending' ) );
-		}
-
-		$payment = ( new \FrmTransLitePayment() )->get_one_by( $entry_id, 'item_id' );
-		$claimed = self::claim_from_payment_status( $payment ? $payment->status : '' );
-
-		if ( 'pending' === $claimed && $payment ) {
-			self::maybe_sync_payment_status( $payment, $entry_id );
-			// Re-fetch: maybe_sync_payment_status() may have just completed it.
-			$payment = ( new \FrmTransLitePayment() )->get_one( $payment->id );
-			$claimed = self::claim_from_payment_status( $payment ? $payment->status : '' );
-		}
-
-		if ( 'pending' === $claimed ) {
-			wp_send_json( array( 'status' => 'pending' ) );
-		}
-
-		$form         = self::get_entry_form( $entry_id );
+	private static function success_mode_target( array $context ) {
 		$success_info = isset( $context['success_info'] ) ? $context['success_info'] : array();
 
-		if ( 'success' === $claimed && 'redirect' === ( $success_info['type'] ?? '' ) && ! empty( $success_info['url'] ) ) {
-			wp_send_json(
-				array(
-					'status'      => 'success',
-					'action'      => 'redirect',
-					'redirectUrl' => esc_url_raw( $success_info['url'] ),
-				)
+		if ( 'redirect' === ( $success_info['type'] ?? '' ) && ! empty( $success_info['url'] ) ) {
+			return array(
+				'mode' => 'redirect',
+				'url'  => esc_url_raw( $success_info['url'] ),
 			);
 		}
 
-		// resolve_message() double-checks the same token again internally —
-		// same rendering compute_modal_data() would produce for a real
-		// return-trip page load, reused here unchanged. It does NOT delete the
-		// context transient (see its own docblock): this poll and a genuine
-		// return-trip load can both legitimately need it for the same entry.
-		$message = self::resolve_message( $claimed, $entry_id, $token, $form );
+		$settings = new SettingsRepository();
+		$mode     = $settings->get_success_mode();
+		$url      = $settings->get_success_redirect_url();
 
-		wp_send_json(
-			array(
-				'status'    => $claimed,
-				'action'    => 'modal',
-				'modalHtml' => self::build_modal_html(
-					array(
-						'status'  => 'success' === $claimed ? 'success' : 'error',
-						'claimed' => $claimed,
-						'message' => $message,
-						'form'    => $form,
-					)
-				),
-			)
+		if ( 'message' === $mode || '' === $url ) {
+			return array(
+				'mode' => 'message',
+				'url'  => '',
+			);
+		}
+
+		return array(
+			'mode' => $mode,
+			'url'  => $url,
 		);
 	}
 
 	/**
-	 * Maps a `wp_frm_payments` row's own status directly to this plugin's
-	 * four-outcome vocabulary — used by handle_status() only, which (unlike
-	 * resolve_outcome()) has no `status` query hint to go on, just whatever
-	 * the DB says right now. The DB's 'failed' status covers both a cancel
-	 * and an error (see resolve_outcome()'s own note on this); polling has
-	 * no way to recover which one it originally was, so it's always reported
-	 * as the generic 'failed' claim.
+	 * The merchant's own "Redirect to URL" choice for the Pending outcome
+	 * (settings screen — see SettingsRepository's `get_pending_mode()`/
+	 * `get_pending_redirect_url()`), mirroring Formidable's own native On
+	 * Submit "Redirect to URL" option but scoped to this plugin's own
+	 * fallback outcome. Deliberately never called for 'success', which has
+	 * its own, three-way version of this same lookup — see
+	 * success_mode_target(). Canceled/Failed have no mode setting of their
+	 * own — they're never a configured redirect (see build_destination()).
 	 *
-	 * @param string $payment_status
+	 * @param string $outcome Must be 'pending'.
 	 *
-	 * @return string One of 'success', 'failed', 'pending'.
+	 * @return string Empty when Pending is still set to "Show Message"/"Open in a New Tab" (the default) or has no URL configured.
 	 */
-	private static function claim_from_payment_status( $payment_status ) {
-		if ( 'complete' === $payment_status ) {
-			return 'success';
+	private static function outcome_redirect_url( $outcome ) {
+		if ( 'pending' !== $outcome ) {
+			return '';
 		}
 
-		if ( 'failed' === $payment_status ) {
-			return 'failed';
+		$settings = new SettingsRepository();
+		$mode     = $settings->get_pending_mode();
+		$url      = $settings->get_pending_redirect_url();
+
+		return ( 'redirect' === $mode && '' !== $url ) ? esc_url_raw( $url ) : '';
+	}
+
+	/**
+	 * The URL to open in a new tab alongside the popup — the "Open in a New
+	 * Tab" mode's own target, for every outcome that offers it (currently
+	 * Payment Received and Payment Pending; see SettingsRepository's
+	 * `get_success_mode()`/`get_pending_mode()`). Deliberately separate from
+	 * outcome_redirect_url() above, which only ever returns a URL for the
+	 * 'redirect' mode (a real page navigation, replacing the popup entirely)
+	 * — this one only ever returns a URL for 'open_new_tab' (the popup itself
+	 * still renders; the URL just opens alongside it, client-side — see
+	 * build_modal_html()/assets/js/frontend.js's `activateModal()`).
+	 *
+	 * @param string $claimed
+	 * @param array  $context From `get_context()` — needs `success_info` for the 'success' case.
+	 *
+	 * @return string
+	 */
+	private static function open_new_tab_url( $claimed, array $context ) {
+		if ( 'success' === $claimed ) {
+			$target = self::success_mode_target( $context );
+			return 'open_new_tab' === $target['mode'] ? $target['url'] : '';
 		}
 
-		return 'pending';
+		if ( 'pending' === $claimed ) {
+			$settings = new SettingsRepository();
+			return 'open_new_tab' === $settings->get_pending_mode() ? $settings->get_pending_redirect_url() : '';
+		}
+
+		return '';
 	}
 
 	/**
 	 * Best-effort synchronous check against ifthenpay's own
 	 * `/gateway/transaction/status/get` for a still-pending payment — called
-	 * from handle_status() so a real-time method (card, MB WAY, wallets) can
-	 * resolve the instant the payer's own poll asks, instead of only ever
-	 * finding out once WebhookController::handle()'s async callback lands.
-	 * Can't do anything for an offline method (Multibanco, Payshop):
+	 * from resolve_outcome() so a real-time method (card, MB WAY, wallets)
+	 * can resolve the instant the payer's tab lands back on this site,
+	 * instead of only ever finding out once WebhookController::handle()'s
+	 * async callback lands (which this tab, unlike the two-tab-poll design an
+	 * earlier version of this class used, has no later chance to catch up
+	 * with). Can't do anything for an offline method (Multibanco, Payshop):
 	 * ifthenpay's own status for those stays 'pending' until it actually
 	 * settles regardless of how often this is called, sometimes hours or
 	 * days later — the webhook remains the only way those ever resolve, and
@@ -809,11 +836,12 @@ class RedirectHandler {
 	 * design this class used to have) the real entry already exists and
 	 * isn't waiting on a live browser to do anything further.
 	 *
-	 * A no-op — never throws, never blocks the poll response — if ifthenpay
-	 * never returned a transaction id for this attempt (e.g. it predates
-	 * this feature, or the redirect transient already expired) or the API
-	 * call itself fails; the regular webhook-driven poll is always the
-	 * fallback either way.
+	 * A no-op — never throws, never blocks the redirect that follows — if
+	 * ifthenpay never returned a transaction id for this attempt (e.g. it
+	 * predates this feature, or the redirect transient already expired) or
+	 * the API call itself fails; the payer just sees the 'pending' outcome
+	 * in that case, and the async webhook remains the fallback that
+	 * eventually completes the payment server-side either way.
 	 *
 	 * @param object $payment  The still-'pending' wp_frm_payments row.
 	 * @param int    $entry_id
@@ -855,10 +883,11 @@ class RedirectHandler {
 	 * Unconditional (Formidable-active-gated), not tied to compute_modal_data()
 	 * like before: assets/js/frontend.js now has two independent jobs — show
 	 * the outcome popup on a return trip (query-string-driven, same as
-	 * before) AND arm the payment overlay/poll flow on the *original* submit
-	 * page, which has none of the return-trip query args yet. Both self-gate
-	 * against the DOM (`#iftp-frm-modal` / `.frm-show-form[data-iftp-payment]`),
-	 * so this is a cheap no-op script on any page without either.
+	 * before) AND hand off to the pre-opened payment tab on the *original*
+	 * submit page, which has none of the return-trip query args yet. Both
+	 * self-gate against the DOM (`#iftp-frm-modal` /
+	 * `.frm-show-form[data-iftp-payment]`), so this is a cheap no-op script on
+	 * any page without either.
 	 *
 	 * @return void
 	 */
@@ -877,8 +906,8 @@ class RedirectHandler {
 				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 				'logoUrl' => IFTP_FRM_URL . 'assets/img/logo_ifthenpay_white.svg',
 				'i18n'    => array(
-					'waiting'   => __( 'Waiting for your payment to complete…', 'ifthenpay-payments-for-formidable' ),
-					'poweredBy' => __( 'Powered by', 'ifthenpay-payments-for-formidable' ),
+					'continueInOtherTab' => __( 'Continue in the other tab — you can close this one.', 'ifthenpay-payments-for-formidable' ),
+					'poweredBy'          => __( 'Powered by', 'ifthenpay-payments-for-formidable' ),
 				),
 			)
 		);
@@ -906,7 +935,7 @@ class RedirectHandler {
 	 * Memoized: both hooks above need this and it's expensive (DB lookups) —
 	 * no reason to run it twice in the same request.
 	 *
-	 * @return array{status:string, claimed:string, message:string, form:object|null}|null
+	 * @return array{status:string, claimed:string, message:string, form:object|null, open_url:string}|null
 	 */
 	private static function get_modal_data() {
 		if ( ! self::$modal_data_computed ) {
@@ -922,7 +951,14 @@ class RedirectHandler {
 	 * than trusting `ifthenpay_notice` outright, so a guessed/tampered entry
 	 * id can't paint a false popup for someone else's payment.
 	 *
-	 * @return array{status:string, claimed:string, message:string, form:object|null}|null
+	 * This is the direct return-trip page load — the tab that actually went
+	 * to ifthenpay and back, which now stays put and shows this instead of
+	 * trying to close itself (see this class's own docblock). The only tab
+	 * that ever renders this for a given entry, so `open_url` carries
+	 * open_new_tab_url()'s real value here without risking a duplicate
+	 * `window.open()` anywhere else.
+	 *
+	 * @return array{status:string, claimed:string, message:string, form:object|null, open_url:string}|null
 	 */
 	private static function compute_modal_data() {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only display hint, re-verified against the DB below.
@@ -953,10 +989,11 @@ class RedirectHandler {
 		}
 
 		return array(
-			'status'  => in_array( $claimed, array( 'failed', 'canceled' ), true ) ? 'error' : 'success',
-			'claimed' => $claimed,
-			'message' => $message,
-			'form'    => $form,
+			'status'   => in_array( $claimed, array( 'failed', 'canceled' ), true ) ? 'error' : 'success',
+			'claimed'  => $claimed,
+			'message'  => $message,
+			'form'     => $form,
+			'open_url' => self::open_new_tab_url( $claimed, self::get_context( $entry_id ) ),
 		);
 	}
 
@@ -985,21 +1022,29 @@ class RedirectHandler {
 	}
 
 	/**
-	 * Builds the final popup message HTML: the form's own native "On Submit →
-	 * Show Message" text for a success (captured pre-payment by
+	 * Builds the final popup message HTML: for a success, the form's own
+	 * native "On Submit → Show Message" text (captured pre-payment by
 	 * `IfthenpayGateway::capture_real_success_info()`, carried here via the
-	 * context transient), falling back to this plugin's own configurable
-	 * message (`SettingsRepository`) for every outcome, or its built-in
-	 * default text when that setting is empty.
+	 * context transient) ONLY while ifthenpay's own Payment Received setting
+	 * is still left on its default "Show Message" mode — the moment a
+	 * merchant explicitly picks "Open in a New Tab" (the only other mode that
+	 * ever reaches this popup; "Redirect to URL" never shows a message at
+	 * all), this plugin's own configured message is what counts instead, not
+	 * whatever the native form happens to say — that's the whole point of
+	 * giving that mode its own editable message field right next to the URL
+	 * one (settings-tab.php). Pending (and Success again once neither of the
+	 * above applies) falls back to this plugin's own configurable message
+	 * (`SettingsRepository`), or its built-in default text when that setting
+	 * is empty. Canceled/Failed are never configurable — they always show a
+	 * fixed, hardcoded message.
 	 *
 	 * Formidable field shortcodes (e.g. `[21]`) are only ever resolved
 	 * against the real entry when `$token` matches the one-time secret
 	 * `IfthenpayGateway::trigger()` minted for this entry — otherwise the
 	 * message is shown as plain, unprocessed text. Entry ids are small
-	 * sequential ints and both the query string and the status-poll request
-	 * are otherwise unauthenticated, so without that check anyone could read
-	 * another payer's submitted field values (or
-	 * another payer's personalized message) by guessing
+	 * sequential ints and the query string is otherwise unauthenticated, so
+	 * without that check anyone could read another payer's submitted field
+	 * values (or another payer's personalized message) by guessing
 	 * `?ifthenpay_notice=<x>&ifthenpay_entry=<id>` directly.
 	 *
 	 * @param string      $claimed
@@ -1015,33 +1060,28 @@ class RedirectHandler {
 		$stored_token = isset( $context['token'] ) ? $context['token'] : '';
 		$token_ok     = '' !== $stored_token && hash_equals( $stored_token, $token );
 
-		// Deliberately never deleted here, even on a verified read: this can now
-		// be reached by TWO independent legitimate readers for the same entry —
-		// handle_return()'s own return-trip page load (typically the *new* tab)
-		// AND handle_status()'s poll (the *original* tab, every ~3s) — see
-		// RedirectHandler's class docblock. Deleting it on whichever one reads
-		// it first used to make the second one silently fall back to the
-		// generic configured text instead of the real message, and since
-		// ifthenpay's own redirect usually beats the poll's cadence, that
-		// "second" reader was typically the original tab — the one the payer
-		// is actually watching. Leaving it alone and relying on its own TTL
-		// (self::TRANSIENT_TTL) for cleanup still fully closes the earlier
-		// concern this delete was added for (an attacker without a valid token
-		// burning another payer's context): deletion was already conditional on
-		// $token_ok, so an attacker who never has a valid token could never
-		// trigger it either way — not deleting on a *valid* read doesn't
-		// reopen that.
+		// Deliberately never deleted here, even on a verified read: the payer
+		// reloading this same return-trip page should still resolve the real
+		// message, not silently fall back to the generic configured text.
+		// Relying on its own short TTL (self::TRANSIENT_TTL) for cleanup still
+		// fully closes the concern an explicit delete would otherwise guard
+		// against (an attacker without a valid token burning another payer's
+		// context): deletion was already conditional on $token_ok, so an
+		// attacker who never has a valid token could never trigger it either
+		// way — not deleting on a *valid* read doesn't reopen that.
 		$settings = new SettingsRepository();
 
-		if ( 'success' === $claimed && $token_ok && 'message' === ( $success_info['type'] ?? '' ) && isset( $success_info['message'] ) ) {
+		if ( 'success' === $claimed && $token_ok && 'message' === $settings->get_success_mode() && 'message' === ( $success_info['type'] ?? '' ) && isset( $success_info['message'] ) ) {
 			return self::render_message( $success_info['message'], $form, $entry_id, true );
 		}
 
 		$defaults = array(
 			'success'  => $settings->get_success_message(),
 			'pending'  => $settings->get_pending_message(),
-			'canceled' => $settings->get_canceled_message(),
-			'failed'   => $settings->get_failed_message(),
+			// Fixed, non-configurable text — Canceled/Failed have no message
+			// setting of their own (see this method's own docblock).
+			'canceled' => __( 'You canceled the payment before it was completed.', 'ifthenpay-payments-for-formidable' ),
+			'failed'   => __( 'Your payment could not be completed. Please try again.', 'ifthenpay-payments-for-formidable' ),
 		);
 
 		if ( ! isset( $defaults[ $claimed ] ) ) {
@@ -1096,16 +1136,17 @@ class RedirectHandler {
 	}
 
 	/**
-	 * @param array{status:string, claimed:string, message:string, form:object|null} $data
+	 * @param array{status:string, claimed:string, message:string, form:object|null, open_url:string} $data
 	 *
 	 * @return string
 	 */
 	private static function build_modal_html( array $data ) {
-		$colors = self::build_color_style( self::get_style_vars( $data['form'] ) );
+		$colors   = self::build_color_style( self::get_style_vars( $data['form'] ) );
+		$open_url = isset( $data['open_url'] ) ? (string) $data['open_url'] : '';
 
 		ob_start();
 		?>
-		<div id="iftp-frm-modal" class="iftp-frm-modal iftp-frm-modal--<?php echo esc_attr( $data['status'] ); ?>" style="<?php echo esc_attr( $colors ); ?>" role="dialog" aria-modal="true" aria-labelledby="iftp-frm-modal-title" hidden>
+		<div id="iftp-frm-modal" class="iftp-frm-modal iftp-frm-modal--<?php echo esc_attr( $data['status'] ); ?>" style="<?php echo esc_attr( $colors ); ?>" role="dialog" aria-modal="true" aria-labelledby="iftp-frm-modal-title" <?php echo $open_url ? 'data-iftp-open-url="' . esc_url( $open_url ) . '"' : ''; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- esc_url() already applied above; the surrounding attribute markup itself is a static literal. ?> hidden>
 			<div class="iftp-frm-modal__backdrop" data-iftp-close></div>
 			<div class="iftp-frm-modal__box">
 				<button type="button" class="iftp-frm-modal__close" data-iftp-close aria-label="<?php esc_attr_e( 'Close', 'ifthenpay-payments-for-formidable' ); ?>">&times;</button>
