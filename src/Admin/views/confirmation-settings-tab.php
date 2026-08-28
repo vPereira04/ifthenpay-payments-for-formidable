@@ -1,15 +1,18 @@
 <?php
 /**
- * The "Confirmation Type" tab on Formidable's Global Settings screen — its
+ * The "Ifthenpay Extras" tab on Formidable's Global Settings screen — its
  * own top-level tab (registered via `frm_add_settings_section`), separate
  * from the ifthenpay Gateway tab nested inside Payments (Backoffice Key /
  * Gateway Key / Methods / Expiry Days live there instead — see
- * `settings-tab.php`).
+ * `settings-tab.php`). Covers the payer-facing outcome messages/redirects
+ * below, plus the pay button's icons/text customization further down.
  *
  * Expects: $settings (SettingsRepository).
  *
  * @package Ifthenpay\Formidable
  */
+
+use Ifthenpay\Formidable\Frontend\PaymentSelector;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	die( 'You are not allowed to call this page directly.' );
@@ -84,13 +87,46 @@ $iftp_frm_outcomes = array(
 				?>
 				<div class="iftp-frm-outcome-field <?php echo $iftp_frm_message_hidden ? 'frm_hidden' : ''; ?>" data-outcome="<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" data-mode="message">
 					<label class="iftp-frm-outcome-field__label" for="frm_ifthenpay_msg_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>"><?php esc_html_e( 'Message', 'ifthenpay-payments-for-formidable' ); ?></label>
-					<textarea id="frm_ifthenpay_msg_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" name="frm_ifthenpay_msg_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" rows="2" class="frm_with_left_label" style="width:100%;max-width:480px;border-radius: 6px;border-color: #d0d0d0;color: #4f4f4f;"><?php echo esc_textarea( $iftp_frm_outcome['msg'] ); ?></textarea>
+					<textarea id="frm_ifthenpay_msg_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" name="frm_ifthenpay_msg_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" rows="2" class="frm_with_left_label" style="width:100%;max-width:740px;border-radius: 6px;border-color: #d0d0d0;color: #4f4f4f;"><?php echo esc_textarea( $iftp_frm_outcome['msg'] ); ?></textarea>
 				</div>
 				<div class="iftp-frm-outcome-field <?php echo $iftp_frm_url_hidden ? 'frm_hidden' : ''; ?>" data-outcome="<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" data-mode="url">
 					<label class="iftp-frm-outcome-field__label" for="frm_ifthenpay_url_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>"><?php esc_html_e( 'URL', 'ifthenpay-payments-for-formidable' ); ?></label>
-					<input type="url" id="frm_ifthenpay_url_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" name="frm_ifthenpay_url_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" class="frm_with_left_label" style="width:100%;max-width:480px;border-radius: 6px;border-color: #d0d0d0;color: #4f4f4f;" placeholder="https://" value="<?php echo esc_attr( $iftp_frm_outcome['url'] ); ?>" />
+					<input type="url" id="frm_ifthenpay_url_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" name="frm_ifthenpay_url_<?php echo esc_attr( $iftp_frm_outcome_key ); ?>" class="frm_with_left_label" style="width:100%;max-width:740px;border-radius: 6px;border-color: #d0d0d0;color: #4f4f4f;" placeholder="https://" value="<?php echo esc_attr( $iftp_frm_outcome['url'] ); ?>" />
 				</div>
 			</td>
 		</tr>
 	<?php endforeach; ?>
+</table>
+
+<h2><?php esc_html_e( 'Pay Button', 'ifthenpay-payments-for-formidable' ); ?></h2>
+<p class="frm-description">
+	<?php esc_html_e( 'Controls how the ifthenpay pay button looks on the form itself, not the confirmation screen above.', 'ifthenpay-payments-for-formidable' ); ?>
+</p>
+<table class="form-table">
+	<tr class="form-field">
+		<th scope="row"><label for="frm_ifthenpay_disable_method_icons"><?php esc_html_e( 'Payment Method Icons', 'ifthenpay-payments-for-formidable' ); ?></label></th>
+		<td>
+			<label>
+				<input type="checkbox" id="frm_ifthenpay_disable_method_icons" name="frm_ifthenpay_disable_method_icons" value="1" class="iftp-frm-extra-toggle" <?php checked( $settings->is_method_icons_disabled() ); ?> />
+				<?php esc_html_e( 'Hide the row of payment method icons shown above the pay button', 'ifthenpay-payments-for-formidable' ); ?>
+			</label>
+		</td>
+	</tr>
+	<tr class="form-field">
+		<th scope="row"><label for="frm_ifthenpay_button_text"><?php esc_html_e( 'Button Text', 'ifthenpay-payments-for-formidable' ); ?></label></th>
+		<td>
+			<input type="text" id="frm_ifthenpay_button_text" name="frm_ifthenpay_button_text" class="regular-text iftp-frm-extra-toggle" value="<?php echo esc_attr( $settings->get_button_text() ); ?>" placeholder="<?php esc_attr_e( 'Pay with {logo}', 'ifthenpay-payments-for-formidable' ); ?>" />
+			<p class="frm-description">
+				<?php esc_html_e( 'Use {logo} to place the ifthenpay logo inside your own text, e.g. "Pay here with {logo}". Leave {logo} out entirely to show text only, with no logo.', 'ifthenpay-payments-for-formidable' ); ?>
+			</p>
+		</td>
+	</tr>
+	<tr class="form-field">
+		<th scope="row"><?php esc_html_e( 'Preview', 'ifthenpay-payments-for-formidable' ); ?></th>
+		<td>
+			<button type="button" class="iftp-frm-pay-button iftp-frm-extra-preview" id="iftp-frm-button-preview" tabindex="-1">
+				<?php echo PaymentSelector::render_button_content( $settings->get_button_text() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped piece by piece in render_button_content(). ?>
+			</button>
+		</td>
+	</tr>
 </table>

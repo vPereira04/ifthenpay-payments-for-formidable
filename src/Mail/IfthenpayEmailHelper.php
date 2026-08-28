@@ -18,14 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class IfthenpayEmailHelper {
 
-	/**
-	 * The real ifthenpay support address stays commented out until the team
-	 * explicitly says otherwise. Every integration currently sends to the
-	 * v.pereira address during development/testing. Never flip these, never
-	 * delete the commented line.
-	 */
-	const SUPPORT_EMAIL = 'v.pereira.contacto@gmail.com';
-	// const SUPPORT_EMAIL = 'suporte@ifthenpay.com';
+	const SUPPORT_EMAIL = 'suporte@ifthenpay.com';
 
 	/**
 	 * @return void

@@ -13,7 +13,6 @@
  * License:           GPL v3
  * License URI:       https://www.gnu.org/licenses/gpl-3.0.html
  * Text Domain:       ifthenpay-payments-for-formidable
- * Domain Path:       /languages
  *
  * @package Ifthenpay\Formidable
  */
@@ -100,15 +99,6 @@ function ifthenpay_frm_boot() {
 	\Ifthenpay\Formidable\Ajax\Controller::boot();
 	\Ifthenpay\Formidable\Webhook\WebhookController::boot();
 	\Ifthenpay\Formidable\Admin\SettingsField::boot();
-
-	add_action( 'plugins_loaded', 'ifthenpay_frm_load_textdomain' );
-}
-
-/**
- * @return void
- */
-function ifthenpay_frm_load_textdomain() {
-	load_plugin_textdomain( 'ifthenpay-payments-for-formidable', false, dirname( plugin_basename( IFTP_FRM_FILE ) ) . '/languages' );
 }
 
 /**

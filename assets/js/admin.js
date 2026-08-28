@@ -10,6 +10,7 @@
 		$( document ).on( 'change', '.iftp-frm-method-enabled', onMethodEnabledChanged );
 		$( document ).on( 'change', '.iftp-frm-method-star-input', onDefaultMethodChanged );
 		$( document ).on( 'change', '.iftp-frm-outcome-mode-input', onOutcomeModeChanged );
+		$( document ).on( 'change input', '.iftp-frm-extra-toggle', updateButtonPreview );
 		$( document ).on( 'submit', 'form.frm_settings_form', onGlobalSettingsSubmit );
 
 		// Initialize star visibility to match each row's current "Enabled"
@@ -242,15 +243,24 @@
 				}
 
 				$input.val( '' );
-				$( '#iftp-frm-connect-form' ).hide();
-				$( '#iftp-frm-connected-state' ).show();
+				$( '#iftp-frm-connect-form' ).hide().removeClass( 'iftp-frm-reveal-in' );
+				$( '#iftp-frm-connected-state' ).show().addClass( 'iftp-frm-reveal-in' );
 				$( '#iftp-frm-connect-tag' )
 					.removeClass( 'frm-grey-tag' )
 					.addClass( 'frm-lt-green-tag' )
 					.text( '' );
 
+				// A fresh connection starts with no Gateway Key selected —
+				// clear out whatever methods table was left over from a
+				// previous connection so it can't resurface (the reveal
+				// chain is Backoffice Key → Gateway Key → Payment Methods/
+				// Expiry Days). populateGatewayKeySelect() below may
+				// auto-select a single Gateway Key and re-reveal this itself.
+				hideMethodsWrap();
+				resetMethodsTable();
+
 				populateGatewayKeySelect( response.data.gateway_keys || [] );
-				$( '#iftp-frm-gateway-section' ).show();
+				$( '#iftp-frm-gateway-section' ).show().addClass( 'iftp-frm-reveal-in' );
 			} )
 			.fail( function () {
 				$error.text( iftpFrmAdmin.i18n.genericError );
@@ -266,13 +276,22 @@
 			action: 'ifthenpay_frm_disconnect_backoffice',
 			nonce: iftpFrmAdmin.nonce
 		} ).always( function () {
-			$( '#iftp-frm-connected-state' ).hide();
-			$( '#iftp-frm-connect-form' ).show();
-			$( '#iftp-frm-gateway-section' ).hide();
+			$( '#iftp-frm-connected-state' ).hide().removeClass( 'iftp-frm-reveal-in' );
+			$( '#iftp-frm-connect-form' ).show().addClass( 'iftp-frm-reveal-in' );
+			$( '#iftp-frm-gateway-section' ).hide().removeClass( 'iftp-frm-reveal-in' );
 			$( '#iftp-frm-connect-tag' )
 				.removeClass( 'frm-lt-green-tag' )
 				.addClass( 'frm-grey-tag' )
 				.text( '' );
+
+			// Mirrors delete_backoffice_key() wiping the Gateway Key/methods/
+			// default-method options server-side — without this the old
+			// Gateway Key select and methods table would just be sitting
+			// hidden in the DOM, ready to flash back into view on reconnect.
+			$( '#iftp-frm-gateway-key-select' ).empty();
+			hideMethodsWrap();
+			resetMethodsTable();
+
 			$btn.prop( 'disabled', false );
 		} );
 	}
@@ -299,10 +318,17 @@
 		var $tbody = $( '#iftp-frm-methods-table-body' );
 
 		if ( ! gatewayKey ) {
+			// Reselecting the "— Select —" placeholder retracts the reveal
+			// chain the same way disconnecting does — nothing downstream of
+			// a Gateway Key is meaningful without one.
+			hideMethodsWrap();
+			resetMethodsTable();
 			return;
 		}
 
-		$tbody.html( '<tr><td colspan="5" class="iftp-frm-methods-loading">' + iftpFrmAdmin.i18n.loadingTable + '</td></tr>' );
+		showMethodsWrap();
+
+		$tbody.html( '<tr><td colspan="4" class="iftp-frm-methods-loading">' + iftpFrmAdmin.i18n.loadingTable + '</td></tr>' );
 
 		$.post( iftpFrmAdmin.ajaxUrl, {
 			action: 'ifthenpay_frm_select_gateway_key',
@@ -311,7 +337,7 @@
 		} )
 			.done( function ( response ) {
 				if ( ! response || ! response.success ) {
-					$tbody.html( '<tr><td colspan="5">' + ( ( response && response.data && response.data.message ) || iftpFrmAdmin.i18n.genericError ) + '</td></tr>' );
+					$tbody.html( '<tr><td colspan="4">' + ( ( response && response.data && response.data.message ) || iftpFrmAdmin.i18n.genericError ) + '</td></tr>' );
 					return;
 				}
 
@@ -322,8 +348,31 @@
 				} );
 			} )
 			.fail( function () {
-				$tbody.html( '<tr><td colspan="5">' + iftpFrmAdmin.i18n.genericError + '</td></tr>' );
+				$tbody.html( '<tr><td colspan="4">' + iftpFrmAdmin.i18n.genericError + '</td></tr>' );
 			} );
+	}
+
+	// -------------------------------------------------------------------
+	// Payment Methods / Expiry Days reveal (blueprint: hidden until a
+	// Gateway Key is selected — see settings-tab.php's `#iftp-frm-methods-wrap`)
+	// -------------------------------------------------------------------
+
+	function showMethodsWrap() {
+		var $wrap = $( '#iftp-frm-methods-wrap' );
+
+		if ( $wrap.prop( 'hidden' ) ) {
+			$wrap.prop( 'hidden', false ).addClass( 'iftp-frm-reveal-in' );
+		}
+	}
+
+	function hideMethodsWrap() {
+		$( '#iftp-frm-methods-wrap' ).prop( 'hidden', true ).removeClass( 'iftp-frm-reveal-in' );
+	}
+
+	function resetMethodsTable() {
+		$( '#iftp-frm-methods-table-body' ).html(
+			'<tr class="iftp-frm-methods-empty-row"><td colspan="4">' + iftpFrmAdmin.i18n.selectGatewayPrompt + '</td></tr>'
+		);
 	}
 
 	// -------------------------------------------------------------------
@@ -398,6 +447,60 @@
 			var hidden = ( 'message' === fieldMode && 'redirect' === mode ) || ( 'url' === fieldMode && 'message' === mode );
 			$field.toggleClass( 'frm_hidden', hidden );
 		} );
+	}
+
+	// -------------------------------------------------------------------
+	// Pay Button preview (blueprint §8.2 — pure client-side, no AJAX).
+	// Mirrors PaymentSelector::render_button_content()'s own split-on-
+	// "{logo}" logic so the preview never shows something the real button
+	// wouldn't. This is a preview only — the real markup always comes from
+	// PHP on save/render, this never writes anywhere itself.
+	// -------------------------------------------------------------------
+
+	function updateButtonPreview() {
+		var $preview = $( '#iftp-frm-button-preview' );
+
+		if ( ! $preview.length ) {
+			return;
+		}
+
+		var text = $.trim( $( '#frm_ifthenpay_button_text' ).val() );
+		if ( ! text ) {
+			text = iftpFrmAdmin.i18n.defaultButtonText;
+		}
+
+		$preview.html( buildButtonPreviewHtml( text ) );
+	}
+
+	// {logo} is the only control over the logo — text with no {logo} in it
+	// renders with no logo at all, it is never auto-appended. Uses
+	// buttonLogoUrl (the white mark made for the button's own colored
+	// background), never logoUrl (the colored mark used for the Payments-tab
+	// pill), which would be invisible/wrong here.
+	function buildButtonPreviewHtml( text ) {
+		if ( -1 === text.indexOf( '{logo}' ) ) {
+			return '<span class="iftp-frm-pay-button__text">' + escapeHtml( text ) + '</span>';
+		}
+
+		var logoImg = '<img class="iftp-frm-pay-button__logo" src="' + iftpFrmAdmin.buttonLogoUrl + '" alt="' + escapeHtml( iftpFrmAdmin.i18n.ifthenpay ) + '" />';
+		var parts = text.split( '{logo}' );
+		var html = '';
+
+		parts.forEach( function ( part, i ) {
+			part = $.trim( part );
+			if ( part ) {
+				html += '<span class="iftp-frm-pay-button__text">' + escapeHtml( part ) + '</span>';
+			}
+			if ( i < parts.length - 1 ) {
+				html += logoImg;
+			}
+		} );
+
+		return html;
+	}
+
+	function escapeHtml( str ) {
+		return $( '<div>' ).text( str ).html();
 	}
 
 	// -------------------------------------------------------------------

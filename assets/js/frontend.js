@@ -208,11 +208,27 @@
 	// button deliberately sits outside the bordered box, see
 	// PaymentSelector::render()) — hiding/showing happens on this shared
 	// wrapper so both move together.
-	$( '.iftp-frm-method-block' ).each( function () {
-		var $block = $( this );
-		var $form  = $block.closest( 'form' );
+
+	/**
+	 * @param {jQuery} $form
+	 * @return {void}
+	 */
+	function hideNativeSubmitButtons( $form ) {
+		var $block = $form.find( '.iftp-frm-method-block' );
+
+		if ( ! $block.length || $block.prop( 'hidden' ) ) {
+			// Not ours to touch — either no ifthenpay block on this form, or
+			// the payer already picked a different method (see the 'change'
+			// handler below), in which case the native button(s) are meant
+			// to stay visible.
+			return;
+		}
 
 		nativeSubmitButtons( $form ).css( 'display', 'none' );
+	}
+
+	$( '.iftp-frm-method-block' ).each( function () {
+		hideNativeSubmitButtons( $( this ).closest( 'form' ) );
 	} );
 
 	// Any radio elsewhere in the form being selected (Formidable's own
@@ -229,5 +245,53 @@
 
 		$block.prop( 'hidden', true );
 		nativeSubmitButtons( $form ).css( 'display', '' );
+	} );
+
+	// A blocked submit attempt (a required field left empty, an invalid
+	// email, etc.) re-validates and re-renders field-level error messages
+	// through Formidable's own core JS — none of which know our native
+	// submit button(s) are supposed to stay hidden, so that pass can leave
+	// them visible again next to our own "Pay" button until the page is
+	// reloaded. Re-asserting the hide right after every validation pass
+	// (pass or fail — cheap, and correct either way) closes that gap instead
+	// of tracking down every internal Formidable code path that can touch
+	// it. Two distinct signals, both needed: `frm_get_ajax_form_errors` is a
+	// native `CustomEvent` (see formidable.js's own `triggerCustomEvent()`)
+	// fired on every submit attempt for the client-side pass — required
+	// fields, format checks — before any request goes out; `frmFormErrors`
+	// is a jQuery-triggered event fired only after the server rejects an
+	// AJAX submission (checks formidable.js can't do client-side, e.g.
+	// server-side spam/validation rules).
+	document.addEventListener( 'frm_get_ajax_form_errors', function ( event ) {
+		var formEl = event.frmData && event.frmData.formEl;
+
+		if ( formEl ) {
+			hideNativeSubmitButtons( $( formEl ) );
+		}
+	} );
+
+	$( document ).on( 'frmFormErrors', function ( event, formEl ) {
+		if ( formEl ) {
+			hideNativeSubmitButtons( $( formEl ) );
+		}
+	} );
+
+	// A gateway-level failure (e.g. IfthenpayGateway::trigger() rejecting a
+	// missing/zero amount) never reaches the two handlers above: Formidable's
+	// own FrmTransLiteActionsController::show_failed_message() forces
+	// `show_form=1` and swaps in an error message while still treating the
+	// entry as successfully created, so formidable.js takes its `response.content`
+	// branch — replacing the whole `.frm_forms` wrapper with fresh markup and
+	// firing `frmFormComplete`, never `frmFormErrors`/`frm_get_ajax_form_errors`.
+	// That fresh markup's native submit button(s) never get hidden, and stay
+	// visible next to our "Pay" button until some later submit attempt
+	// incidentally fires one of the events above, or the page is reloaded.
+	// `object` on `frmFormComplete` is the detached pre-replace form element,
+	// not the new one, so re-scan the document the same way the initial
+	// page-load pass does rather than relying on it.
+	$( document ).on( 'frmFormComplete', function () {
+		$( '.iftp-frm-method-block' ).each( function () {
+			hideNativeSubmitButtons( $( this ).closest( 'form' ) );
+		} );
 	} );
 } )( window.jQuery );

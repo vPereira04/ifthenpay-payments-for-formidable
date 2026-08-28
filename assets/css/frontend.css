@@ -77,6 +77,7 @@
 	color: inherit;
 	opacity: 0.6;
 	transition: opacity 0.15s ease, transform 0.15s ease;
+  box-shadow: none !important;
 }
 
 /* No background/border "ball" behind the glyph on hover — just the × itself
@@ -96,19 +97,21 @@
 	background: none !important;
 	border: none !important;
 	outline: none !important;
-	box-shadow: none !important;
 	color: var(--iftp-success-text, #468847) !important;
 	transform: scale(1.2);
+  box-shadow: none !important;
 }
 
 .iftp-frm-modal--error .iftp-frm-modal__close:hover,
 .iftp-frm-modal--error .iftp-frm-modal__close:focus-visible,
 .iftp-frm-modal--error .iftp-frm-modal__close:active {
 	color: var(--iftp-error-text, #f04438) !important;
+  box-shadow: none !important;
 }
 
 .iftp-frm-modal__close:active {
 	transform: scale(1.05);
+  box-shadow: none !important;
 }
 
 /* Outline style, colored to match whichever box (success/error) this is —
@@ -262,27 +265,23 @@
 .iftp-frm-method-option {
 	display: flex;
 	align-items: center;
-	padding: 16px 16px 14px;
+	justify-content: center;
+	padding: 8px;
 }
 
 .iftp-frm-method-marks {
 	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 10px;
 }
 
 .iftp-frm-method-mark {
 	height: 24px;
 	width: auto;
 	display: block;
-}
-
-.iftp-frm-method-sep {
-	width: 1px;
-	height: 20px;
-	background: #d0d5dd;
-	margin: 0 2px;
 }
 
 .iftp-frm-method-action {
@@ -295,16 +294,42 @@
 
 .iftp-frm-pay-button {
 	width: 100%;
-	padding: 10px 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 11px 16px;
 	border: 1px solid var(--iftp-accent, #4199fd);
 	border-radius: var(--iftp-radius, 8px);
 	background: var(--iftp-accent, #4199fd);
 	color: var(--iftp-accent-text, #fff);
 	font-size: 15px;
 	font-weight: 500;
+	line-height: 1;
 	cursor: pointer;
+	transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.iftp-frm-pay-button__text {
+	white-space: nowrap;
+}
+
+.iftp-frm-pay-button__logo {
+	height: 18px;
+	width: auto;
+	display: block;
+  margin-top: 3px;
 }
 
 .iftp-frm-pay-button:hover {
 	background: var(--iftp-accent-hover, #3680d3);
+}
+
+.iftp-frm-pay-button:active {
+	transform: scale(0.99);
+}
+
+.iftp-frm-pay-button:focus-visible {
+	outline: 2px solid var(--iftp-accent, #4199fd);
+	outline-offset: 2px;
 }

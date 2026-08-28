@@ -31,6 +31,8 @@ class SettingsRepository {
 	const OPT_MODE_PENDING     = 'frm_ifthenpay_mode_pending';
 	const OPT_URL_SUCCESS      = 'frm_ifthenpay_url_success';
 	const OPT_URL_PENDING      = 'frm_ifthenpay_url_pending';
+	const OPT_DISABLE_METHOD_ICONS = 'frm_ifthenpay_disable_method_icons';
+	const OPT_BUTTON_TEXT          = 'frm_ifthenpay_button_text';
 
 	/**
 	 * @return bool
@@ -196,6 +198,42 @@ class SettingsRepository {
 	}
 
 	/**
+	 * Applies a submitted set of "enabled" method entities (and a candidate
+	 * default method) to the saved methods snapshot, persisting both. Shared
+	 * by Ajax\Controller::save_settings() and Admin\SettingsField::process_form()
+	 * — the two independent save paths on the settings screen — so the
+	 * enabled/default-validity rule can never drift between them.
+	 *
+	 * @param string[] $enabled_entities
+	 * @param string   $submitted_default_method
+	 *
+	 * @return void
+	 */
+	public function apply_enabled_methods( array $enabled_entities, $submitted_default_method ) {
+		$enabled_entities = array_map( 'strtoupper', $enabled_entities );
+		$methods          = $this->get_methods();
+
+		foreach ( $methods as &$method ) {
+			$method['enabled'] = ! empty( $method['provisioned'] ) && in_array( strtoupper( $method['entity'] ), $enabled_entities, true );
+		}
+		unset( $method );
+
+		$this->save_methods( $methods );
+
+		$default_method     = strtoupper( $submitted_default_method );
+		$default_is_enabled = false;
+
+		foreach ( $methods as $method ) {
+			if ( strtoupper( $method['entity'] ) === $default_method && ! empty( $method['enabled'] ) ) {
+				$default_is_enabled = true;
+				break;
+			}
+		}
+
+		$this->save_default_method( $default_is_enabled ? $default_method : '' );
+	}
+
+	/**
 	 * @return string
 	 */
 	public function get_success_message() {
@@ -316,6 +354,45 @@ class SettingsRepository {
 	 */
 	public function save_pending_redirect_url( $url ) {
 		update_option( self::OPT_URL_PENDING, esc_url_raw( $url ), false );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function is_method_icons_disabled() {
+		return (bool) get_option( self::OPT_DISABLE_METHOD_ICONS, false );
+	}
+
+	/**
+	 * @param bool $disabled
+	 *
+	 * @return void
+	 */
+	public function save_method_icons_disabled( $disabled ) {
+		update_option( self::OPT_DISABLE_METHOD_ICONS, (bool) $disabled, false );
+	}
+
+	/**
+	 * The `{logo}` token marks where the ifthenpay logo is inserted —
+	 * PaymentSelector::render_button_content() splits on it. A merchant who
+	 * leaves it out of their custom text simply gets a logo-less button; the
+	 * token is the only control over the logo, there is no separate toggle.
+	 *
+	 * @return string
+	 */
+	public function get_button_text() {
+		$text = get_option( self::OPT_BUTTON_TEXT, '' );
+		/* translators: pay button text. Keep the literal {logo} token where the ifthenpay logo should appear, or remove it to show text only. */
+		return '' !== $text ? (string) $text : __( 'Pay with {logo}', 'ifthenpay-payments-for-formidable' );
+	}
+
+	/**
+	 * @param string $text
+	 *
+	 * @return void
+	 */
+	public function save_button_text( $text ) {
+		update_option( self::OPT_BUTTON_TEXT, sanitize_text_field( $text ), false );
 	}
 
 	/**

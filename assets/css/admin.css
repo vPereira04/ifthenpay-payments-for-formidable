@@ -16,6 +16,11 @@
 
 /* ---- Methods table: control-column layout (blueprint §8, Default Method Selector) ---- */
 
+table.iftp-frm-methods-table {
+	width: auto;
+	max-width: 650px;
+}
+
 .iftp-frm-methods-table th,
 .iftp-frm-methods-table td {
 	vertical-align: middle;
@@ -31,9 +36,44 @@
 	border-right: 1px solid #dcdcde;
 }
 
+/* The star toggle itself is a small icon (see .iftp-frm-method-star below) —
+ * gives it 10px of breathing room on each side instead of sitting flush
+ * against the Enabled column and the Method column. `.widefat td { padding:
+ * 8px 10px }` (WP core, wp-admin/css/common.css) is a class+type selector,
+ * same specificity tier as a bare `.iftp-frm-col-default` class selector but
+ * loaded first — on a tie the later stylesheet should win, but in practice
+ * something in this cascade was still zeroing it out, so both the selector
+ * (table+class+type+class) and `!important` are used here to settle it for
+ * good regardless of load order. */
+table.iftp-frm-methods-table td.iftp-frm-col-default {
+	padding-left: 30px !important;
+	padding-right: 30px !important;
+}
+
 .iftp-frm-col-method,
 .iftp-frm-col-account {
 	text-align: left;
+}
+
+/* The logo (inline-flex) and label (inline span) are two separate inline-level
+ * boxes on the same line by default — without this, squeezing the table's
+ * overall width (see the max-width cap above) gave the browser room to
+ * "solve" the squeeze by wrapping the label onto its own line under the
+ * logo instead of growing the column, which is never what we want here. */
+.iftp-frm-col-method {
+	white-space: nowrap;
+	padding-right: 20px;
+}
+
+/* Account is a short, roughly fixed-width value (the account pill) — shrink
+ * it to content like the control columns, instead of letting the browser's
+ * auto table layout split the table's leftover width evenly between it and
+ * Method. That's what was pushing Method and Account far apart even after
+ * capping the table's own max-width above. */
+.iftp-frm-col-account {
+	width: 1%;
+	white-space: nowrap;
+	padding-left: 32px;
 }
 
 .iftp-frm-methods-empty-row td {
@@ -99,8 +139,7 @@
  * the top of the cell than the middle. */
 .iftp-frm-status-cell {
 	display: flex;
-	flex-direction: row;
-	flex-wrap: nowrap;
+	flex-flow: row nowrap;
 	align-items: center;
 	justify-content: flex-start;
 	gap: 8px;
@@ -132,8 +171,8 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 28px;
-	height: 28px;
+	width: 20px;
+	height: 20px;
 	cursor: pointer;
 	border-radius: 4px;
 }
@@ -145,7 +184,7 @@
 }
 
 .iftp-frm-star-icon {
-	font-size: 18px;
+	font-size: 15px;
 	line-height: 1;
 	color: #dcdcde;
 	transition: color 0.15s ease;
@@ -167,19 +206,22 @@
 @keyframes iftp-frm-star-wink {
 	0% {
 		transform: scale( 1 ) rotate( 0deg );
-		text-shadow: 0 0 0 rgba( 219, 166, 23, 0 );
+		text-shadow: 0 0 0 rgb( 219 166 23 / 0% );
 	}
+
 	40% {
 		transform: scale( 1.35 ) rotate( -15deg );
-		text-shadow: 0 0 9px rgba( 255, 199, 44, 0.95 );
+		text-shadow: 0 0 9px rgb( 255 199 44 / 95% );
 	}
+
 	70% {
 		transform: scale( 0.95 ) rotate( 8deg );
-		text-shadow: 0 0 5px rgba( 255, 199, 44, 0.6 );
+		text-shadow: 0 0 5px rgb( 255 199 44 / 60% );
 	}
+
 	100% {
 		transform: scale( 1 ) rotate( 0deg );
-		text-shadow: 0 0 0 rgba( 219, 166, 23, 0 );
+		text-shadow: 0 0 0 rgb( 219 166 23 / 0% );
 	}
 }
 
@@ -187,6 +229,28 @@
 	padding: 16px;
 	color: #646970;
 	font-style: italic;
+}
+
+/* ---- Reveal chain: Backoffice Key → Gateway Key → Payment Methods/Expiry
+ * Days ----
+ * Each step of assets/js/admin.js's connect/select flow un-hides the next
+ * one with this class rather than snapping it straight into view. */
+@media (prefers-reduced-motion: no-preference) {
+	.iftp-frm-reveal-in {
+		animation: iftp-frm-reveal-in 0.25s ease-out;
+	}
+}
+
+@keyframes iftp-frm-reveal-in {
+	from {
+		opacity: 0;
+		transform: translateY( -6px );
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY( 0 );
+	}
 }
 
 /* ---- Payments-tab pill (assets/js/admin.js injects this into Formidable's
@@ -221,24 +285,26 @@
 	display: flex;
 	gap: 12px;
 	margin-bottom: 8px;
-	max-width: 480px;
+	max-width: 740px;
 }
 
 .iftp-frm-outcome-box {
 	position: relative;
 	flex: 1 1 0;
 	display: flex;
-	flex-direction: row;
+	flex-flow: row nowrap;
 	align-items: center;
 	justify-content: center;
-	gap: 8px;
-	padding: 3px 14px;
+	gap: 10px;
+	padding: 26px 18px;
 	border: 2px solid #dcdcde;
 	border-radius: 8px;
 	cursor: pointer;
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 500;
 	color: #1d2327;
+	line-height: 1;
+	white-space: nowrap;
 	transition: border-color 0.15s ease, color 0.15s ease;
 }
 
@@ -262,8 +328,27 @@
 }
 
 .iftp-frm-outcome-box__icon {
-	display: flex;
+	display: inline-flex;
 	flex: 0 0 auto;
+	align-items: center;
+	align-self: center;
+}
+
+/* Belt-and-braces against any broader admin reset that targets bare `svg`
+ * elements (a common `img, svg { max-width: 100%; height: auto }`-style
+ * rule would blow this icon up to the box's full width, forcing the label
+ * onto its own line below it instead of sitting beside it). */
+.iftp-frm-outcome-box__icon svg {
+	display: block;
+	width: 24px;
+	height: 24px;
+	flex-shrink: 0;
+}
+
+.iftp-frm-outcome-box__label {
+	display: inline-flex;
+	align-items: center;
+	align-self: center;
 }
 
 .iftp-frm-outcome-box:has( input:checked ) {
@@ -280,7 +365,7 @@
  * URL (never side by side) when "Open in a New Tab" shows both at once. */
 .iftp-frm-outcome-field {
 	display: block;
-	max-width: 480px;
+	max-width: 740px;
 	margin-top: 8px;
 }
 
@@ -303,4 +388,17 @@
 .iftp-frm-currency-locked {
 	pointer-events: none;
 	opacity: 0.6;
+}
+
+/* ---- "Ifthenpay Extras" tab: Pay Button preview ----
+ * Reuses frontend.css's own .iftp-frm-pay-button classes so the preview can
+ * never visually drift from the real button — only this wrapper (non-
+ * interactive: `pointer-events: none`, no hover/active states apply) and the
+ * fixed width (form-table has no natural width cap for a `<button>` cell) are
+ * specific to this admin context.
+ */
+.iftp-frm-extra-preview {
+	max-width: 320px;
+	cursor: default;
+	pointer-events: none;
 }

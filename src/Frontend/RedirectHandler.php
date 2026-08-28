@@ -634,6 +634,7 @@ class RedirectHandler {
 
 		global $wpdb;
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- FrmTransLitePayment::update() can't express the conditional `WHERE status = 'pending'` guard needed to avoid racing a concurrent webhook completion.
 		$claimed = $wpdb->update(
 			$wpdb->prefix . 'frm_payments',
 			array(
@@ -647,7 +648,9 @@ class RedirectHandler {
 			array(
 				'id'     => $payment->id,
 				'status' => 'pending',
-			)
+			),
+			array( '%s', '%s' ),
+			array( '%d', '%s' )
 		);
 
 		if ( ! $claimed ) {
@@ -896,8 +899,11 @@ class RedirectHandler {
 			return;
 		}
 
-		wp_enqueue_style( 'ifthenpay-frm-frontend', IFTP_FRM_URL . 'assets/css/frontend.css', array(), IFTP_FRM_VERSION );
-		wp_enqueue_script( 'ifthenpay-frm-frontend', IFTP_FRM_URL . 'assets/js/frontend.js', array( 'jquery' ), IFTP_FRM_VERSION, true );
+		// See Admin\SettingsField::asset_version()'s own docblock — filemtime,
+		// not the fixed IFTP_FRM_VERSION release string, so an actual edit to
+		// either file always busts the browser's cache.
+		wp_enqueue_style( 'ifthenpay-frm-frontend', IFTP_FRM_URL . 'assets/css/frontend.css', array(), \Ifthenpay\Formidable\Admin\SettingsField::asset_version( 'assets/css/frontend.css' ) );
+		wp_enqueue_script( 'ifthenpay-frm-frontend', IFTP_FRM_URL . 'assets/js/frontend.js', array( 'jquery' ), \Ifthenpay\Formidable\Admin\SettingsField::asset_version( 'assets/js/frontend.js' ), true );
 
 		wp_localize_script(
 			'ifthenpay-frm-frontend',

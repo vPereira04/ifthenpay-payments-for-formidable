@@ -64,7 +64,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<tr class="form-field">
 			<th scope="row"><?php esc_html_e( 'Gateway Key', 'ifthenpay-payments-for-formidable' ); ?></th>
 			<td>
-				<select id="iftp-frm-gateway-key-select" name="frm_ifthenpay_gateway_key_display" class="frm_with_left_label">
+				<select id="iftp-frm-gateway-key-select" name="frm_ifthenpay_gateway_key_display" class="frm_with_left_label" style="width:100%;max-width:420px;">
 					<option value=""><?php esc_html_e( '— Select —', 'ifthenpay-payments-for-formidable' ); ?></option>
 					<?php
 					$iftp_frm_current_listed = false;
@@ -82,43 +82,52 @@ if ( ! defined( 'ABSPATH' ) ) {
 		</tr>
 	</table>
 
-	<h4><?php esc_html_e( 'Payment Methods', 'ifthenpay-payments-for-formidable' ); ?></h4>
-	<table class="wp-list-table widefat striped iftp-frm-methods-table">
-		<thead>
-			<tr>
-				<th class="iftp-frm-col-control"><?php esc_html_e( 'Enabled', 'ifthenpay-payments-for-formidable' ); ?></th>
-				<th class="iftp-frm-col-control"><?php esc_html_e( 'Default Method', 'ifthenpay-payments-for-formidable' ); ?></th>
-				<th><?php esc_html_e( 'Method', 'ifthenpay-payments-for-formidable' ); ?></th>
-				<th><?php esc_html_e( 'Account', 'ifthenpay-payments-for-formidable' ); ?></th>
-			</tr>
-		</thead>
-		<tbody id="iftp-frm-methods-table-body">
-			<?php if ( '' === $gateway_key || empty( $methods ) ) : ?>
-				<tr class="iftp-frm-methods-empty-row">
-					<td colspan="4"><?php esc_html_e( 'Select a Gateway Key to load its payment methods.', 'ifthenpay-payments-for-formidable' ); ?></td>
+	<?php
+	// Payment Methods / Expiry Days only mean anything once a Gateway Key
+	// is actually selected — kept hidden (native `hidden` attribute, see
+	// admin.css `[hidden]` handling) until then instead of showing an
+	// empty/stale table. assets/js/admin.js reveals this in place, with a
+	// short fade-in, the moment a Gateway Key is chosen or auto-selected.
+	?>
+	<div id="iftp-frm-methods-wrap" <?php echo ( '' !== $gateway_key ) ? '' : 'hidden'; ?>>
+		<h4><?php esc_html_e( 'Payment Methods', 'ifthenpay-payments-for-formidable' ); ?></h4>
+		<table class="wp-list-table widefat striped iftp-frm-methods-table">
+			<thead>
+				<tr>
+					<th class="iftp-frm-col-control"><?php esc_html_e( 'Enabled', 'ifthenpay-payments-for-formidable' ); ?></th>
+					<th class="iftp-frm-col-control iftp-frm-col-default"><span class="screen-reader-text"><?php esc_html_e( 'Default Method', 'ifthenpay-payments-for-formidable' ); ?></span></th>
+					<th><?php esc_html_e( 'Method', 'ifthenpay-payments-for-formidable' ); ?></th>
+					<th><?php esc_html_e( 'Account', 'ifthenpay-payments-for-formidable' ); ?></th>
 				</tr>
-			<?php else : ?>
-				<?php echo \Ifthenpay\Formidable\Admin\SettingsField::render_methods_table_rows( $methods, $gateway_key, $settings->get_default_method() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- pre-escaped partial. ?>
-			<?php endif; ?>
-		</tbody>
-	</table>
+			</thead>
+			<tbody id="iftp-frm-methods-table-body">
+				<?php if ( '' === $gateway_key || empty( $methods ) ) : ?>
+					<tr class="iftp-frm-methods-empty-row">
+						<td colspan="4"><?php esc_html_e( 'Select a Gateway Key to load its payment methods.', 'ifthenpay-payments-for-formidable' ); ?></td>
+					</tr>
+				<?php else : ?>
+					<?php echo \Ifthenpay\Formidable\Admin\SettingsField::render_methods_table_rows( $methods, $gateway_key, $settings->get_default_method() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- pre-escaped partial. ?>
+				<?php endif; ?>
+			</tbody>
+		</table>
 
-	<table class="form-table">
-		<tr class="form-field">
-			<th scope="row"><label for="frm_ifthenpay_expiry_days"><?php esc_html_e( 'Expiry Days', 'ifthenpay-payments-for-formidable' ); ?></label></th>
-			<td>
-				<input type="number" min="0" id="frm_ifthenpay_expiry_days" name="frm_ifthenpay_expiry_days" class="frm_with_left_label" style="width:100px;" value="<?php echo esc_attr( $settings->get_expiry_days() ); ?>" />
-				<p class="frm-description"><?php esc_html_e( 'Payment links unpaid after this many days are marked expired. 0 disables expiry.', 'ifthenpay-payments-for-formidable' ); ?></p>
-			</td>
-		</tr>
-	</table>
-	<p class="frm-description">
-		<?php esc_html_e( 'The payment description shown on the ifthenpay hosted page comes from the form\'s own "Collect Payment" action settings (Description field), not from here.', 'ifthenpay-payments-for-formidable' ); ?>
-	</p>
+		<table class="form-table">
+			<tr class="form-field">
+				<th scope="row"><label for="frm_ifthenpay_expiry_days"><?php esc_html_e( 'Expiry Days', 'ifthenpay-payments-for-formidable' ); ?></label></th>
+				<td>
+					<input type="number" min="0" id="frm_ifthenpay_expiry_days" name="frm_ifthenpay_expiry_days" class="frm_with_left_label" style="width:100px;" value="<?php echo esc_attr( $settings->get_expiry_days() ); ?>" />
+					<p class="frm-description"><?php esc_html_e( 'Payment links unpaid after this many days are marked expired. 0 disables expiry.', 'ifthenpay-payments-for-formidable' ); ?></p>
+				</td>
+			</tr>
+		</table>
+		<p class="frm-description">
+			<?php esc_html_e( 'The payment description shown on the ifthenpay hosted page comes from the form\'s own "Collect Payment" action settings (Description field), not from here.', 'ifthenpay-payments-for-formidable' ); ?>
+		</p>
 
-	<p class="frm-description">
-		<?php esc_html_e( 'The messages shown after checkout for Payment Received and Payment Pending are configured on the "Confirmation Type" tab of Global Settings, not here. Payment Canceled and Payment Failed are never configurable: the payer is always sent back to the form and shown a fixed message.', 'ifthenpay-payments-for-formidable' ); ?>
-	</p>
+		<p class="frm-description">
+			<?php esc_html_e( 'The messages shown after checkout for Payment Received and Payment Pending, and the pay button\'s icons/text, are configured on the "Ifthenpay Extras" tab of Global Settings, not here. Payment Canceled and Payment Failed are never configurable: the payer is always sent back to the form and shown a fixed message.', 'ifthenpay-payments-for-formidable' ); ?>
+		</p>
+	</div>
 </div>
 
 <input type="hidden" name="frm_ifthenpay_settings_submitted" value="1" />

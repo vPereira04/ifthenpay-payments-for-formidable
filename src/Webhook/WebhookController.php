@@ -133,15 +133,27 @@ class WebhookController {
 	}
 
 	/**
-	 * Marks a still-pending payment complete.
+	 * Marks a not-yet-completed payment complete.
 	 *
-	 * Conditioned on `status = 'pending'` in the UPDATE's own WHERE clause —
-	 * not a plain `WHERE id = ?` — because a webhook retry (ifthenpay's own,
-	 * or a merchant manually resending one from their dashboard) landing
-	 * again after this already completed it could otherwise still append a
-	 * second, duplicate note. $wpdb->update()'s affected-row-count catches
-	 * that (0 rows) the same way handle()'s own already-'complete' check
-	 * does before ever reaching here.
+	 * Conditioned on `status IN ('pending', 'failed')` in the UPDATE's own
+	 * WHERE clause — not a plain `WHERE id = ?` — because a webhook retry
+	 * (ifthenpay's own, or a merchant manually resending one from their
+	 * dashboard) landing again after this already completed it could
+	 * otherwise still append a second, duplicate note. The affected-row-count
+	 * catches that (0 rows) the same way handle()'s own already-'complete'
+	 * check does before ever reaching here.
+	 *
+	 * 'failed' is included alongside 'pending' because that status is only
+	 * ever set by RedirectHandler::mark_unfinished_payment() off the payer's
+	 * *front-channel* redirect (a cancel/error query arg) — which, per that
+	 * method's own docblock, is a provisional guess, never authoritative.
+	 * This webhook is the one authoritative source of truth (server-to-server
+	 * from ifthenpay itself), so a payer who canceled at the hosted page and
+	 * then went back and paid on the same still-live payment link must still
+	 * be completable here, not permanently locked out by that earlier guess.
+	 * The prior 'failed' note is never removed — add_meta_to_payment() only
+	 * appends — so the merchant still sees the full "canceled, then paid"
+	 * history on the entry.
 	 *
 	 * @param object $payment    A real, already-linked-to-an-entry `wp_frm_payments` row.
 	 * @param string $method     ifthenpay method code (e.g. 'MB', 'MBWAY'), '' if unknown.
@@ -154,15 +166,13 @@ class WebhookController {
 
 		$note = sprintf( 'ifthenpay method: %s. Request ID (for refunds): %s.', strtoupper( $method ), $request_id );
 
-		$claimed = $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			$wpdb->prefix . 'frm_payments',
-			array(
-				'status'     => 'complete',
-				'meta_value' => maybe_serialize( \FrmTransLiteAppHelper::add_meta_to_payment( $payment->meta_value, $note ) ),
-			),
-			array(
-				'id'     => $payment->id,
-				'status' => 'pending',
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- $wpdb->update() can't express a WHERE status IN (...) clause.
+		$claimed = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->prefix}frm_payments SET status = %s, meta_value = %s WHERE id = %d AND status IN ( 'pending', 'failed' )", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name, not user input.
+				'complete',
+				maybe_serialize( \FrmTransLiteAppHelper::add_meta_to_payment( $payment->meta_value, $note ) ),
+				$payment->id
 			)
 		);
 

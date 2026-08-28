@@ -199,7 +199,12 @@ class Controller {
 				continue;
 			}
 
-			$label       = self::first_present( $method, array( 'Alias', 'alias', 'Label', 'label' ), $entity );
+			// 'Method' is the catalog's real display name (e.g. "Multibanco",
+			// "MB WAY", "Cofidis Pay") — verified against the GravityForms
+			// sibling's own `$method['Method']` read. Falling all the way back
+			// to the bare entity code (`MB`, `MBWAY`, ...) only ever happens if
+			// even that's missing from a given catalog row.
+			$label       = self::first_present( $method, array( 'Method', 'method', 'Alias', 'alias', 'Label', 'label' ), $entity );
 			$account     = self::find_account_for_entity( $gateway_row, $entity, $label );
 			$provisioned = '' !== $account;
 			$previous    = isset( $previous_methods[ $entity ] ) ? $previous_methods[ $entity ] : array();
@@ -385,26 +390,9 @@ class Controller {
 			? array_map( 'sanitize_text_field', wp_unslash( $_POST['methods_enabled'] ) )
 			: array();
 
-		$methods = $settings->get_methods();
+		$default_method = isset( $_POST['default_method'] ) ? sanitize_text_field( wp_unslash( $_POST['default_method'] ) ) : '';
 
-		foreach ( $methods as &$method ) {
-			$method['enabled'] = ! empty( $method['provisioned'] ) && in_array( strtoupper( $method['entity'] ), array_map( 'strtoupper', $enabled_entities ), true );
-		}
-		unset( $method );
-
-		$settings->save_methods( $methods );
-
-		$default_method     = isset( $_POST['default_method'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_POST['default_method'] ) ) ) : '';
-		$default_is_enabled = false;
-
-		foreach ( $methods as $method ) {
-			if ( strtoupper( $method['entity'] ) === $default_method && ! empty( $method['enabled'] ) ) {
-				$default_is_enabled = true;
-				break;
-			}
-		}
-
-		$settings->save_default_method( $default_is_enabled ? $default_method : '' );
+		$settings->apply_enabled_methods( $enabled_entities, $default_method );
 
 		$gateway_key    = $settings->get_gateway_key();
 		$callback_saved = '' !== $gateway_key && IfthenpayClient::activate_callback( $gateway_key, WebhookController::base_url() );

@@ -20,9 +20,9 @@ use Ifthenpay\Formidable\Webhook\WebhookController;
  *  - The account/gateway settings (Backoffice Key, Gateway Key, Methods,
  *    Expiry Days) as a sibling "pill" tab inside Formidable's own built-in
  *    Payments section, next to PayPal/Stripe/Square.
- *  - "Confirmation Type" (Payment Received/Pending message+mode+URL) as its
- *    own top-level tab, sibling to General/Permissions/Payments/etc — see
- *    `register_confirmation_settings_tab()`.
+ *  - "Ifthenpay Extras" (Payment Received/Pending message+mode+URL, plus the
+ *    pay button's icons/text) as its own top-level tab, sibling to
+ *    General/Permissions/Payments/etc — see `register_extras_settings_tab()`.
  *
  * Formidable's `FrmSettingsController::remove_payments_sections()` pulls
  * PayPal/Stripe/Square/Authorize.Net out of the generic `frm_add_settings_section`
@@ -30,7 +30,7 @@ use Ifthenpay\Formidable\Webhook\WebhookController;
  * the `.frm-long-icon-buttons` pill row). That allowlist is hardcoded with no
  * filter of its own, so a 3rd-party gateway cannot register into it from PHP —
  * which is why the gateway settings use a different mechanism than the
- * Confirmation Type tab:
+ * Extras tab:
  *  - Hooks `frm_payments_settings_form` (fires once, right after Formidable's
  *    own Payments panel markup — pill row + PayPal/Stripe/Square panels — has
  *    already been output, still inside the shared `#payments_settings` wrapper)
@@ -43,9 +43,9 @@ use Ifthenpay\Formidable\Webhook\WebhookController;
  *    gateways, so once our pill/panel exist with matching attributes, the
  *    native behavior picks them up with no extra JS of our own for the actual
  *    switching — only for the one-time DOM insertion.
- *  - Confirmation Type, by contrast, is a completely ordinary top-level
- *    section registered through the generic `frm_add_settings_section`
- *    filter (see `register_confirmation_settings_tab()`) — Formidable's own
+ *  - Extras, by contrast, is a completely ordinary top-level section
+ *    registered through the generic `frm_add_settings_section` filter (see
+ *    `register_extras_settings_tab()`) — Formidable's own
  *    `classes/views/frm-settings/form.php` renders it, and its own
  *    `classes/views/frm-settings/tabs.php` lists it in the sidebar, with no
  *    custom JS/markup of ours needed for either.
@@ -68,7 +68,7 @@ class SettingsField {
 	 */
 	public static function boot() {
 		add_action( 'frm_payments_settings_form', array( self::class, 'render_payments_pill_panel' ) );
-		add_filter( 'frm_add_settings_section', array( self::class, 'register_confirmation_settings_tab' ) );
+		add_filter( 'frm_add_settings_section', array( self::class, 'register_extras_settings_tab' ) );
 		add_action( 'frm_update_settings', array( self::class, 'process_form' ) );
 		add_action( 'admin_enqueue_scripts', array( self::class, 'maybe_enqueue_assets' ) );
 		add_action( 'frm_pay_ifthenpay_sidebar', array( self::class, 'hide_refund_link' ) );
@@ -107,6 +107,25 @@ class SettingsField {
 	}
 
 	/**
+	 * `IFTP_FRM_VERSION` is a fixed release string, not a cache-buster — every
+	 * edit to admin.css/admin.js under active development would otherwise
+	 * keep hashing to the same `?ver=1.0.0` URL, leaving browsers free to
+	 * serve their cached copy indefinitely. Filemtime ties the query string
+	 * to the file's own last-modified time so a real edit always busts the
+	 * cache; falls back to the release version if the file can't be stat'd
+	 * (e.g. a packaged build where paths differ).
+	 *
+	 * @param string $relative_path Relative to the plugin root, e.g. 'assets/css/admin.css'.
+	 *
+	 * @return string
+	 */
+	public static function asset_version( $relative_path ) {
+		$mtime = @filemtime( IFTP_FRM_DIR . $relative_path );
+
+		return $mtime ? (string) $mtime : IFTP_FRM_VERSION;
+	}
+
+	/**
 	 * @return void
 	 */
 	public static function maybe_enqueue_assets() {
@@ -114,8 +133,13 @@ class SettingsField {
 			return;
 		}
 
-		wp_enqueue_style( 'ifthenpay-frm-admin', IFTP_FRM_URL . 'assets/css/admin.css', array(), IFTP_FRM_VERSION );
-		wp_enqueue_script( 'ifthenpay-frm-admin', IFTP_FRM_URL . 'assets/js/admin.js', array( 'jquery' ), IFTP_FRM_VERSION, true );
+		// frontend.css supplies .iftp-frm-pay-button and friends — loaded here
+		// too so the "Ifthenpay Extras" tab's live button preview (see
+		// views/confirmation-settings-tab.php) renders with the exact same
+		// styles as the real pay button, never a hand-duplicated admin copy.
+		wp_enqueue_style( 'ifthenpay-frm-frontend', IFTP_FRM_URL . 'assets/css/frontend.css', array(), self::asset_version( 'assets/css/frontend.css' ) );
+		wp_enqueue_style( 'ifthenpay-frm-admin', IFTP_FRM_URL . 'assets/css/admin.css', array( 'ifthenpay-frm-frontend' ), self::asset_version( 'assets/css/admin.css' ) );
+		wp_enqueue_script( 'ifthenpay-frm-admin', IFTP_FRM_URL . 'assets/js/admin.js', array( 'jquery' ), self::asset_version( 'assets/js/admin.js' ), true );
 
 		$settings = new SettingsRepository();
 
@@ -123,17 +147,27 @@ class SettingsField {
 			'ifthenpay-frm-admin',
 			'iftpFrmAdmin',
 			array(
-				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-				'nonce'   => wp_create_nonce( Controller::NONCE_ACTION ),
-				'logoUrl' => IFTP_FRM_URL . 'assets/img/logo-color.svg',
-				'i18n'    => array(
-					'connecting'    => __( 'Connecting…', 'ifthenpay-payments-for-formidable' ),
-					'requesting'    => __( 'Requesting…', 'ifthenpay-payments-for-formidable' ),
-					'requested'     => __( 'Requested', 'ifthenpay-payments-for-formidable' ),
-					'loadingTable'  => __( 'Loading payment methods…', 'ifthenpay-payments-for-formidable' ),
-					'genericError'  => __( 'Something went wrong. Please try again.', 'ifthenpay-payments-for-formidable' ),
-					'ifthenpay'     => __( 'ifthenpay', 'ifthenpay-payments-for-formidable' ),
-					'saving'        => __( 'Saving…', 'ifthenpay-payments-for-formidable' ),
+				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+				'nonce'         => wp_create_nonce( Controller::NONCE_ACTION ),
+				'logoUrl'       => IFTP_FRM_URL . 'assets/img/logo-color.svg',
+				// The pay button preview (see confirmation-settings-tab.php)
+				// needs the same white-on-accent-color mark
+				// PaymentSelector::render_button_content() actually uses on
+				// the real button — logoUrl above is the colored mark used
+				// for the Payments-tab pill/Global Settings icon instead,
+				// which would be invisible against the button's own colored
+				// background.
+				'buttonLogoUrl' => IFTP_FRM_URL . 'assets/img/logo_ifthenpay_white.svg',
+				'i18n'          => array(
+					'connecting'          => __( 'Connecting…', 'ifthenpay-payments-for-formidable' ),
+					'requesting'          => __( 'Requesting…', 'ifthenpay-payments-for-formidable' ),
+					'requested'           => __( 'Requested', 'ifthenpay-payments-for-formidable' ),
+					'loadingTable'        => __( 'Loading payment methods…', 'ifthenpay-payments-for-formidable' ),
+					'selectGatewayPrompt' => __( 'Select a Gateway Key to load its payment methods.', 'ifthenpay-payments-for-formidable' ),
+					'genericError'        => __( 'Something went wrong. Please try again.', 'ifthenpay-payments-for-formidable' ),
+					'ifthenpay'           => __( 'ifthenpay', 'ifthenpay-payments-for-formidable' ),
+					'saving'              => __( 'Saving…', 'ifthenpay-payments-for-formidable' ),
+					'defaultButtonText'   => $settings->get_button_text(),
 				),
 				'hasBackofficeKey' => $settings->has_backoffice_key(),
 			)
@@ -190,7 +224,7 @@ class SettingsField {
 	}
 
 	/**
-	 * Adds "Confirmation Type" as its own top-level Global Settings tab,
+	 * Adds "Ifthenpay Extras" as its own top-level Global Settings tab,
 	 * sibling to General/Permissions/Payments/etc — the generic extension
 	 * point third-party plugins use for a genuinely new section (unlike the
 	 * Payments-pill mechanism `render_payments_pill_panel()` uses, which only
@@ -201,12 +235,17 @@ class SettingsField {
 	 *
 	 * @return array<array>
 	 */
-	public static function register_confirmation_settings_tab( $sections ) {
-		$sections['ifthenpay_confirmation'] = array(
-			'class'    => self::class,
-			'function' => 'render_confirmation_settings_tab',
-			'name'     => __( 'Confirmation Type', 'ifthenpay-payments-for-formidable' ),
-			'icon'     => 'frmfont frm_chat_bubbles_icon',
+	public static function register_extras_settings_tab( $sections ) {
+		$sections['ifthenpay_extras'] = array(
+			'class'      => self::class,
+			'function'   => 'render_extras_settings_tab',
+			'name'       => __( 'Ifthenpay Extras', 'ifthenpay-payments-for-formidable' ),
+			// Same glyph Formidable's own "Manage Styles" tab uses — a bold
+			// filled icon at the standard weight, unlike `frm_chat_bubbles_icon`
+			// (this tab's previous icon), which needed a CSS scale-up hack to
+			// match its neighbors (removed, see admin.css history).
+			'icon'       => 'frmfont frm_pallet_icon',
+			'html_class' => 'iftp-frm-extras-tab',
 		);
 
 		return $sections;
@@ -215,7 +254,7 @@ class SettingsField {
 	/**
 	 * @return void
 	 */
-	public static function render_confirmation_settings_tab() {
+	public static function render_extras_settings_tab() {
 		$settings = new SettingsRepository();
 		include IFTP_FRM_DIR . 'src/Admin/views/confirmation-settings-tab.php';
 	}
@@ -264,30 +303,13 @@ class SettingsField {
 			? array_map( 'sanitize_text_field', wp_unslash( $_POST['frm_ifthenpay_methods_enabled'] ) )
 			: array();
 
-		$methods = $settings->get_methods();
+		$default_method = isset( $_POST['frm_ifthenpay_default_method'] ) ? sanitize_text_field( wp_unslash( $_POST['frm_ifthenpay_default_method'] ) ) : '';
 
-		foreach ( $methods as &$method ) {
-			$method['enabled'] = ! empty( $method['provisioned'] ) && in_array( strtoupper( $method['entity'] ), array_map( 'strtoupper', $enabled_entities ), true );
-		}
-		unset( $method );
-
-		$settings->save_methods( $methods );
-
-		$default_method = isset( $_POST['frm_ifthenpay_default_method'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_POST['frm_ifthenpay_default_method'] ) ) ) : '';
-
-		$default_is_enabled = false;
-
-		foreach ( $methods as $method ) {
-			if ( strtoupper( $method['entity'] ) === $default_method && ! empty( $method['enabled'] ) ) {
-				$default_is_enabled = true;
-				break;
-			}
-		}
-
-		$settings->save_default_method( $default_is_enabled ? $default_method : '' );
+		$settings->apply_enabled_methods( $enabled_entities, $default_method );
 
 		self::save_popup_messages( $settings );
 		self::save_outcome_redirects( $settings );
+		self::save_extra_settings( $settings );
 		self::maybe_activate_callback( $settings );
 	}
 
@@ -297,8 +319,8 @@ class SettingsField {
 	 * one is optional, an empty submission just means "keep using the
 	 * built-in default text". Payment Canceled/Failed have no message setting
 	 * of their own — they always show a fixed, hardcoded message (see
-	 * RedirectHandler::resolve_message()). Fields live on the "Confirmation
-	 * Type" tab (`confirmation-settings-tab.php`), but this always runs on
+	 * RedirectHandler::resolve_message()). Fields live on the "Ifthenpay
+	 * Extras" tab (`confirmation-settings-tab.php`), but this always runs on
 	 * every settings save regardless of which tab was visually active — see
 	 * this class's own docblock.
 	 *
@@ -354,6 +376,26 @@ class SettingsField {
 			if ( isset( $_POST[ $field ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by FrmSettingsController::process_form() before frm_update_settings fires.
 				$settings->$setter( wp_unslash( $_POST[ $field ] ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.NonceVerification.Missing -- sanitized (esc_url_raw) inside the setter.
 			}
+		}
+	}
+
+	/**
+	 * Persists the pay button's icons/text customization — the 2 fields on
+	 * the "Ifthenpay Extras" tab that affect `Frontend\PaymentSelector`
+	 * rather than the redirect/message outcomes above. The "enabled" checkbox
+	 * only submits when checked, so its absence from $_POST means "unchecked"
+	 * (unlike the optional-field pattern the other save_*() methods use).
+	 *
+	 * @param SettingsRepository $settings
+	 *
+	 * @return void
+	 */
+	private static function save_extra_settings( SettingsRepository $settings ) {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by FrmSettingsController::process_form() before frm_update_settings fires.
+		$settings->save_method_icons_disabled( isset( $_POST['frm_ifthenpay_disable_method_icons'] ) );
+
+		if ( isset( $_POST['frm_ifthenpay_button_text'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by FrmSettingsController::process_form() before frm_update_settings fires.
+			$settings->save_button_text( wp_unslash( $_POST['frm_ifthenpay_button_text'] ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.NonceVerification.Missing -- sanitized inside the setter.
 		}
 	}
 
